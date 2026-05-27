@@ -58,7 +58,7 @@ func NewModel(cfg *config.Config) Model {
 	}
 }
 
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return tea.Batch(
 		textinput.Blink,
 		m.runStartup(),
@@ -101,7 +101,7 @@ func (m Model) runStartup() tea.Cmd {
 	}
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -187,7 +187,7 @@ func (m *Model) appendOutput(s string) {
 	m.output.WriteString(s)
 }
 
-func (m Model) View() string {
+func (m *Model) View() string {
 	if m.width == 0 {
 		return "Initializing...\n"
 	}
@@ -240,7 +240,7 @@ func (m Model) View() string {
 	return b.String()
 }
 
-func (m Model) renderStatusBar() string {
+func (m *Model) renderStatusBar() string {
 	mode := m.cfg.IssueAutomation.ModeLabel()
 	model := m.cfg.AI.Model
 	repo := m.repo
