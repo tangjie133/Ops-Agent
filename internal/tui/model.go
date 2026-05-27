@@ -16,11 +16,11 @@ import (
 )
 
 type startupDoneMsg struct {
-	ghOK      bool
-	ghWarn    string
-	aiOK      bool
-	aiWarn    string
-	repo      string
+	ghOK   bool
+	ghWarn string
+	aiOK   bool
+	aiWarn string
+	repo   string
 }
 
 type commandDoneMsg struct {
@@ -116,8 +116,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if line == "" {
 				return m, nil
 			}
-			m.appendOutput("> " + line)
 			m.input.SetValue("")
+			if isOutputClearCommand(line) {
+				m.clearOutput()
+				return m, nil
+			}
+			m.appendOutput("> " + line)
 			return m, m.runCommand(line)
 		}
 
@@ -180,6 +184,10 @@ func (m *Model) runCommand(line string) tea.Cmd {
 	}
 }
 
+func (m *Model) clearOutput() {
+	m.output.Reset()
+}
+
 func (m *Model) appendOutput(s string) {
 	if m.output.Len() > 0 {
 		m.output.WriteString("\n")
@@ -196,14 +204,13 @@ func (m *Model) View() string {
 
 	b.WriteString(styleBanner.Render(bannerASCII))
 	b.WriteString("\n")
-	b.WriteString(styleWelcome.Render("Welcome to Ops-Agent!  /help  ·  M: cycle mode  ·  Ctrl+C: quit"))
+	b.WriteString(styleWelcome.Render("Welcome to Ops-Agent!  /help  ·  /clean  ·  M: cycle mode  ·  Ctrl+C: quit"))
 	b.WriteString("\n\n")
 
 	status := m.renderStatusBar()
 	b.WriteString(status)
 	b.WriteString("\n\n")
 
-	// Todo panel placeholder (M2.5)
 	todoW := min(28, m.width/3)
 	if todoW < 20 {
 		todoW = 20

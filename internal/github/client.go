@@ -62,24 +62,81 @@ func NewClient() *Client {
 
 func (c *Client) AuthStatus(ctx context.Context) (*AuthStatus, error) {
 	out, err := c.run(ctx, "auth", "status")
+	raw := strings.TrimSpace(string(out))
 	if err != nil {
-		return &AuthStatus{LoggedIn: false, Raw: strings.TrimSpace(string(out))}, nil
+		return &AuthStatus{LoggedIn: false, Raw: raw}, nil
 	}
 
-	status := &AuthStatus{LoggedIn: true, Raw: strings.TrimSpace(string(out))}
-	for _, line := range strings.Split(status.Raw, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Logged in to") {
-			parts := strings.Fields(line)
-			if len(parts) >= 4 {
-				status.Host = strings.TrimSuffix(parts[3], ",")
-			}
-		}
-		if strings.HasPrefix(line, "Active account:") {
-			status.User = strings.TrimSpace(strings.TrimPrefix(line, "Active account:"))
-		}
+	status := parseAuthStatusRaw(raw)
+	if err != nil {
+		status.LoggedIn = false
 	}
 	return status, nil
+}
+
+func parseAuthStatusRaw(raw string) *AuthStatus {
+	status := &AuthStatus{LoggedIn: true, Raw: raw}
+	for _, line := range strings.Split(status.Raw, "\n") {
+		line = strings.TrimSpace(line)
+		// gh 2.x: "✓ Logged in to github.com account USERNAME (keyring)"
+		if strings.Contains(line, "Logged in to") && strings.Contains(line, " account ") {
+			if user := extractBetween(line, " account ", " ("); user != "" {
+				status.User = user
+			}
+			if host := extractLoggedInHost(line); host != "" {
+				status.Host = host
+			}
+			continue
+		}
+		// legacy: "Logged in to github.com"
+		if strings.HasPrefix(line, "Logged in to") {
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				status.Host = strings.TrimSuffix(parts[2], ",")
+			}
+		}
+		// legacy: "Active account: username"
+		if strings.HasPrefix(line, "Active account:") {
+			val := strings.TrimSpace(strings.TrimPrefix(line, "Active account:"))
+			if val != "" && val != "true" && val != "false" {
+				status.User = val
+			}
+		}
+	}
+	if status.Host == "" {
+		status.Host = "github.com"
+	}
+	return status
+}
+
+func extractBetween(s, start, end string) string {
+	i := strings.Index(s, start)
+	if i < 0 {
+		return ""
+	}
+	s = s[i+len(start):]
+	j := strings.Index(s, end)
+	if j < 0 {
+		return strings.TrimSpace(s)
+	}
+	return strings.TrimSpace(s[:j])
+}
+
+func extractLoggedInHost(line string) string {
+	const prefix = "Logged in to "
+	i := strings.Index(line, prefix)
+	if i < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(line[i+len(prefix):])
+	if j := strings.Index(rest, " account "); j >= 0 {
+		return rest[:j]
+	}
+	parts := strings.Fields(rest)
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
 }
 
 func (c *Client) RepoFromCwd(ctx context.Context) (string, error) {

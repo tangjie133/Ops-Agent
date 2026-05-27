@@ -42,6 +42,8 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, line
 		return fmt.Sprintf("聚焦 issue #%s（详情视图 M2.5）", parts[1])
 	case "/feedback":
 		return "反馈功能占位（M4）。"
+	case "/clean", "/clear":
+		return "" // handled in model: clears output before runCommand
 	default:
 		return fmt.Sprintf("未知命令: %s\n输入 /help 查看可用命令。", cmd)
 	}
@@ -51,6 +53,7 @@ func helpText() string {
 	return `可用命令:
   /help              显示帮助
   /status            检查 gh 与 llama-server
+  /clean             清空输出区域
   /mode [manual|semi|full]  切换 Issue 自动化模式
   /check             PR 检测（M2）
   /issue <n>         聚焦 issue（M2.5）
@@ -60,6 +63,15 @@ func helpText() string {
   Enter   发送
   Ctrl+C  退出
   M       切换 manual → semi → full`
+}
+
+func isOutputClearCommand(line string) bool {
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "/clean", "/clear":
+		return true
+	default:
+		return false
+	}
 }
 
 func cmdStatus(ctx context.Context, gh *github.Client, cfg *config.Config) string {
