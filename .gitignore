@@ -1,0 +1,25 @@
+# Binaries
+/ops-agent
+/ops-agent.exe
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Local config (may contain secrets)
+.ops-agent.yaml
+
+# OS
+.DS_Store
+Thumbs.db

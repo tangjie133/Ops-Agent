@@ -1,0 +1,50 @@
+# Ops-Agent example configuration
+# Copy to .ops-agent.yaml or ~/.config/ops-agent/config.yaml
+
+issue_watch:
+  enabled: true
+  interval: 5m
+  # repo: owner/name
+  labels: ["ops", "needs-triage"]
+  require_unassigned: true
+  todo:
+    max_items: 50
+
+issue_automation:
+  mode: semi
+  auto_analyze: true
+  confirm_before_reply: true
+  auto_reply:
+    only_labels: []
+    max_comments_per_hour: 10
+    comment_footer: |
+      ---
+      _Posted by Ops-Agent (auto)_
+  notify_on_ready: false
+  notify_on_posted: false
+
+notify:
+  on_failure: true
+  channels:
+    slack:
+      enabled: false
+      webhook_url: ${SLACK_WEBHOOK}
+    feishu:
+      enabled: false
+      webhook_url: ${FEISHU_WEBHOOK}
+    dingtalk:
+      enabled: false
+      webhook_url: ${DINGTALK_WEBHOOK}
+
+ai:
+  provider: openai-compatible
+  base_url: http://127.0.0.1:8080/v1
+  model: qwen2.5-coder
+  api_key: local
+
+ci:
+  pr_check_on_events:
+    - pull_request
+  issue_scan:
+    enabled: false
+    fail_on_match: false
