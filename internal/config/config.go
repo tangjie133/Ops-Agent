@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -18,19 +18,27 @@ const (
 
 type Config struct {
 	IssueWatch      IssueWatchConfig      `yaml:"issue_watch"`
+	Webhook         WebhookConfig         `yaml:"webhook"`
 	IssueAutomation IssueAutomationConfig `yaml:"issue_automation"`
 	Notify          NotifyConfig          `yaml:"notify"`
 	AI              AIConfig              `yaml:"ai"`
 	CI              CIConfig              `yaml:"ci"`
 }
 
+// IssueWatchConfig 定义 issue 入待办的过滤规则（由 webhook 触发，非轮询）。
 type IssueWatchConfig struct {
-	Enabled           bool          `yaml:"enabled"`
-	Interval          time.Duration `yaml:"interval"`
-	Repo              string        `yaml:"repo"`
-	Labels            []string      `yaml:"labels"`
-	RequireUnassigned bool          `yaml:"require_unassigned"`
-	Todo              TodoConfig    `yaml:"todo"`
+	Enabled           bool       `yaml:"enabled"`
+	Labels            []string   `yaml:"labels"`
+	RequireUnassigned bool       `yaml:"require_unassigned"`
+	Todo              TodoConfig `yaml:"todo"`
+}
+
+type WebhookConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	Listen    string `yaml:"listen"`
+	Path      string `yaml:"path"`
+	Secret    string `yaml:"secret"`
+	PublicURL string `yaml:"public_url"` // GitHub App 中填写的公网 Webhook URL（smee/ngrok）
 }
 
 type TodoConfig struct {
@@ -70,23 +78,22 @@ type AIConfig struct {
 }
 
 type CIConfig struct {
-	PRCheckOnEvents []string          `yaml:"pr_check_on_events"`
-	IssueScan       IssueScanCIConfig `yaml:"issue_scan"`
-}
-
-type IssueScanCIConfig struct {
-	Enabled     bool `yaml:"enabled"`
-	FailOnMatch bool `yaml:"fail_on_match"`
+	PRCheckOnEvents []string `yaml:"pr_check_on_events"`
 }
 
 func Default() *Config {
 	return &Config{
 		IssueWatch: IssueWatchConfig{
 			Enabled:           true,
-			Interval:          5 * time.Minute,
 			Labels:            []string{"ops", "needs-triage"},
 			RequireUnassigned: true,
 			Todo:              TodoConfig{MaxItems: 50},
+		},
+		Webhook: WebhookConfig{
+			Enabled: true,
+			Listen:  "127.0.0.1:8765",
+			Path:    "/webhooks/github",
+			Secret:  "",
 		},
 		IssueAutomation: IssueAutomationConfig{
 			Mode:               ModeSemi,
@@ -113,10 +120,6 @@ func Default() *Config {
 		},
 		CI: CIConfig{
 			PRCheckOnEvents: []string{"pull_request"},
-			IssueScan: IssueScanCIConfig{
-				Enabled:     false,
-				FailOnMatch: false,
-			},
 		},
 	}
 }
@@ -128,6 +131,7 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	loadedConfigPath = path
 	if path == "" {
 		expandEnv(cfg)
 		return cfg, nil
@@ -142,8 +146,11 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 
-	if cfg.IssueWatch.Interval <= 0 {
-		cfg.IssueWatch.Interval = 5 * time.Minute
+	if cfg.Webhook.Listen == "" {
+		cfg.Webhook.Listen = "127.0.0.1:8765"
+	}
+	if cfg.Webhook.Path == "" {
+		cfg.Webhook.Path = "/webhooks/github"
 	}
 	if cfg.IssueAutomation.Mode == "" {
 		cfg.IssueAutomation.Mode = ModeSemi
@@ -181,6 +188,7 @@ func resolveConfigPath() (string, error) {
 func expandEnv(cfg *Config) {
 	cfg.AI.BaseURL = os.ExpandEnv(cfg.AI.BaseURL)
 	cfg.AI.APIKey = os.ExpandEnv(cfg.AI.APIKey)
+	cfg.Webhook.Secret = os.ExpandEnv(cfg.Webhook.Secret)
 	for name, ch := range cfg.Notify.Channels {
 		ch.WebhookURL = os.ExpandEnv(ch.WebhookURL)
 		cfg.Notify.Channels[name] = ch
@@ -212,4 +220,24 @@ func (c *IssueAutomationConfig) SetMode(mode string) {
 		c.AutoAnalyze = true
 		c.ConfirmBeforeReply = true
 	}
+}
+
+func TodoStorePath() string {
+	if p := os.Getenv("OPS_AGENT_DATA"); p != "" {
+		return filepath.Join(p, "todo.json")
+	}
+	if runtime.GOOS == "windows" {
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			return filepath.Join(appData, "ops-agent", "todo.json")
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".local", "share", "ops-agent", "todo.json")
+	}
+	return "todo.json"
+}
+
+// WebhookAddr 返回 webhook 监听地址（listen + path）。
+func (c *Config) WebhookAddr() string {
+	return c.Webhook.Listen + c.Webhook.Path
 }

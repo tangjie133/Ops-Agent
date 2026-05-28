@@ -35,12 +35,38 @@ var (
 	styleTodoItem = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#9CA3AF"))
 
+	styleTodoSelected = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Bold(true)
+
+	styleCompleteBar = lipgloss.NewStyle().
+			Foreground(colorMuted)
+
+	styleCompleteActive = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Bold(true)
+
+	styleCompleteGhost = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#4B5563"))
+
+	styleCompleteHint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6B7280"))
+
 	styleHelp = lipgloss.NewStyle().
 			Foreground(colorMuted)
 )
 
-const bannerASCII = `   ___     ___   _                    _
-  / _ \   / _ \ | |__    ___    __ _  | |_    ___
- | | | | | | | || '_ \  / _ \  / _` + "`" + ` | | __|  / _ \
- | |_| | | |_| || |_) || (_) || (_| | | |_  |  __/
-  \___/   \___/ |_.__/  \___/  \__,_|  \__|  \___|`
+// bannerASCII: figlet "Ops-Agent" (standard) — left "Ops", right "Agent".
+const bannerASCII = `   ___                    _                    _   
+  / _ \ _ __  ___        / \   __ _  ___ _ __ | |_ 
+ | | | | '_ \/ __|_____ / _ \ / _` + "`" + ` |/ _ \ '_ \| __|
+ | |_| | |_) \__ \_____/ ___ \ (_| |  __/ | | | |_ 
+  \___/| .__/|___/    /_/   \_\__, |\___|_| |_|\__|
+       |_|                    |___/`
+
+const outputPlaceholder = "输出区域 — 命令结果将显示在这里"
+
+// headerLineCount is the fixed header height (banner + welcome + status + spacing).
+const headerLineCount = 12
+// footerLineCount is the fixed footer height (spacing + input + help).
+const footerLineCount = 3

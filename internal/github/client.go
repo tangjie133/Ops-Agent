@@ -34,14 +34,28 @@ type User struct {
 	Login string `json:"login"`
 }
 
-type PullRequest struct {
-	Number    int    `json:"number"`
-	Title     string `json:"title"`
-	URL       string `json:"url"`
-	State     string `json:"state"`
-	Body      string `json:"body"`
-	Mergeable string `json:"mergeable"`
+type CheckContext struct {
+	Context string `json:"context"`
+	State   string `json:"state"`
 }
+
+type StatusCheckRollup struct {
+	State    string         `json:"state"`
+	Contexts []CheckContext `json:"contexts"`
+}
+
+type PullRequest struct {
+	Number             int               `json:"number"`
+	Title              string            `json:"title"`
+	URL                string            `json:"url"`
+	State              string            `json:"state"`
+	Body               string            `json:"body"`
+	Mergeable          string            `json:"mergeable"`
+	MergeStateStatus   string            `json:"mergeStateStatus"`
+	StatusCheckRollup  StatusCheckRollup `json:"statusCheckRollup"`
+}
+
+const prViewJSON = "number,title,url,state,body,mergeable,mergeStateStatus,statusCheckRollup"
 
 type ChecksResult struct {
 	Raw string
@@ -213,12 +227,27 @@ func (c *Client) IssueComment(ctx context.Context, repo string, num int, body st
 func (c *Client) PRView(ctx context.Context, repo string, num int) (*PullRequest, error) {
 	args := []string{
 		"pr", "view", fmt.Sprintf("%d", num),
-		"--json", "number,title,url,state,body,mergeable",
+		"--json", prViewJSON,
 	}
 	if repo != "" {
 		args = append(args, "-R", repo)
 	}
-	out, err := c.run(ctx, args...)
+	return c.parsePRView(outFromRun(c.run(ctx, args...)))
+}
+
+func (c *Client) PRViewCurrent(ctx context.Context, repo string) (*PullRequest, error) {
+	args := []string{"pr", "view", "--json", prViewJSON}
+	if repo != "" {
+		args = append(args, "-R", repo)
+	}
+	return c.parsePRView(outFromRun(c.run(ctx, args...)))
+}
+
+func outFromRun(out []byte, err error) ([]byte, error) {
+	return out, err
+}
+
+func (c *Client) parsePRView(out []byte, err error) (*PullRequest, error) {
 	if err != nil {
 		return nil, err
 	}

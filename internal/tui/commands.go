@@ -8,9 +8,11 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/ai"
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
+	"github.com/ZzedJay/Ops-Agent/internal/prcheck"
+	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
-func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, line string) string {
+func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, store *todo.FileStore, line string) string {
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return ""
@@ -34,12 +36,16 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, line
 		cfg.IssueAutomation.SetMode(parts[1])
 		return fmt.Sprintf("已切换为: %s", cfg.IssueAutomation.ModeLabel())
 	case "/check":
-		return "PR 检测将在 M2 实现。请先使用 /status 检查环境。"
+		return cmdCheck(ctx, gh)
 	case "/issue":
 		if len(parts) < 2 {
 			return "用法: /issue <number>"
 		}
-		return fmt.Sprintf("聚焦 issue #%s（详情视图 M2.5）", parts[1])
+		var num int
+		if _, err := fmt.Sscanf(parts[1], "%d", &num); err != nil || num <= 0 {
+			return "无效的 issue 编号"
+		}
+		return cmdIssue(ctx, gh, store, num)
 	case "/feedback":
 		return "反馈功能占位（M4）。"
 	case "/clean", "/clear":
@@ -55,14 +61,19 @@ func helpText() string {
   /status            检查 gh 与 llama-server
   /clean             清空输出区域
   /mode [manual|semi|full]  切换 Issue 自动化模式
-  /check             PR 检测（M2）
-  /issue <n>         聚焦 issue（M2.5）
+  /check             检测当前分支 PR（checks + 冲突）
+  /issue <n>         查看 issue 详情与待办状态
   /feedback          反馈（M4）
 
 快捷键:
-  Enter   发送
-  Ctrl+C  退出
-  M       切换 manual → semi → full`
+  Enter        发送
+  Tab / →      命令自动补全
+  Ctrl+C       退出
+  M            切换 manual → semi → full
+  j / k          待办列表上/下（输入框为空时）
+  i              查看选中待办 issue 详情
+  d              忽略选中待办
+  鼠标滚轮       在中间输出区滚动历史`
 }
 
 func isOutputClearCommand(line string) bool {
@@ -107,8 +118,71 @@ func cmdStatus(ctx context.Context, gh *github.Client, cfg *config.Config) strin
 	}
 
 	b.WriteString(fmt.Sprintf("\n自动化模式: %s\n", cfg.IssueAutomation.ModeLabel()))
-	b.WriteString(fmt.Sprintf("Issue 监视: enabled=%v labels=%v\n",
+	b.WriteString(fmt.Sprintf("Issue 监视: enabled=%v labels=%v (webhook)\n",
 		cfg.IssueWatch.Enabled, cfg.IssueWatch.Labels))
+	if cfg.Webhook.Enabled {
+		b.WriteString(fmt.Sprintf("Webhook 本地: %s\n", cfg.Webhook.LocalURL()))
+		if cfg.Webhook.PublicURL != "" {
+			b.WriteString(fmt.Sprintf("GitHub App URL: %s\n", cfg.Webhook.PublicURL))
+		}
+		b.WriteString(fmt.Sprintf("Secret 已配置: %v\n", cfg.Webhook.Secret != ""))
+	} else {
+		b.WriteString("Webhook: 已禁用\n")
+	}
+	b.WriteString(fmt.Sprintf("待办存储: %s\n", config.TodoStorePath()))
 
+	return b.String()
+}
+
+func cmdCheck(ctx context.Context, gh *github.Client) string {
+	res, err := prcheck.Check(ctx, gh, prcheck.Options{})
+	if err != nil {
+		return fmt.Sprintf("PR 检测失败: %v", err)
+	}
+	return res.FormatReport()
+}
+
+func cmdIssue(ctx context.Context, gh *github.Client, store *todo.FileStore, num int) string {
+	repo, err := gh.RepoFromCwd(ctx)
+	if err != nil {
+		return fmt.Sprintf("无法解析仓库: %v", err)
+	}
+	iss, err := gh.IssueView(ctx, repo, num)
+	if err != nil {
+		return fmt.Sprintf("读取 issue 失败: %v", err)
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("── Issue #%d ──\n\n", iss.Number))
+	b.WriteString(iss.Title + "\n")
+	b.WriteString(fmt.Sprintf("状态: %s\n", iss.State))
+	if iss.URL != "" {
+		b.WriteString(iss.URL + "\n")
+	}
+	if len(iss.Labels) > 0 {
+		names := make([]string, len(iss.Labels))
+		for i, l := range iss.Labels {
+			names[i] = l.Name
+		}
+		b.WriteString("标签: " + strings.Join(names, ", ") + "\n")
+	}
+	if len(iss.Assignees) > 0 {
+		names := make([]string, len(iss.Assignees))
+		for i, u := range iss.Assignees {
+			names[i] = u.Login
+		}
+		b.WriteString("指派: " + strings.Join(names, ", ") + "\n")
+	} else {
+		b.WriteString("指派: (未指派)\n")
+	}
+
+	if item, ok := store.Get(repo, num); ok {
+		b.WriteString(fmt.Sprintf("\n待办状态: %s\n", item.Status))
+		if item.Draft != "" {
+			b.WriteString("\n草稿:\n" + item.Draft + "\n")
+		}
+	} else {
+		b.WriteString("\n待办: 未收录\n")
+	}
 	return b.String()
 }

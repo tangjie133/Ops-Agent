@@ -1,14 +1,21 @@
 # Ops-Agent example configuration
 # Copy to .ops-agent.yaml or ~/.config/ops-agent/config.yaml
 
+# Issue 入待办规则（由 GitHub webhook 触发，非轮询单仓库）
 issue_watch:
   enabled: true
-  interval: 5m
-  # repo: owner/name
-  labels: ["ops", "needs-triage"]
+  labels: ["ops", "needs-triage"]   # OR：命中任一 label；空列表=不过滤 label
   require_unassigned: true
   todo:
     max_items: 50
+
+# GitHub App / 仓库 Webhook 接收（与 GitHub 侧配置的 secret 一致）
+webhook:
+  enabled: true
+  listen: "127.0.0.1:8765"
+  path: "/webhooks/github"
+  secret: ${GITHUB_WEBHOOK_SECRET}
+  public_url: ""   # GitHub App Webhook URL（smee/ngrok 公网地址）
 
 issue_automation:
   mode: semi
@@ -45,6 +52,3 @@ ai:
 ci:
   pr_check_on_events:
     - pull_request
-  issue_scan:
-    enabled: false
-    fail_on_match: false

@@ -18,9 +18,9 @@
 | **M0** | 2–3 天 | 工程骨架、配置、双入口 | `go build` 成功；`OPS_AGENT_CI=1` 走 headless |
 | **M1** | 5–7 天 | TUI 壳 + `gh` 封装 | TUI 运行；`/status` 显示 repo 与 gh 状态 |
 | **M2** | 5–7 天 | PR 检测 + 通知 + Actions | CI 失败 `exit 1` + webhook |
-| **M2.5** | 7–10 天 | Issue 扫描 + 待办 + Worker 骨架 | 待办持久化；manual 模式 |
-| **M3** | 10–15 天 | AI + Agent + semi/full | semi 草稿确认后发 comment |
-| **M4** | 5 天 | 流式、监控、Issue workflow | 体验闭环 |
+| **M2.5** | 7–10 天 | Issue 扫描 + 待办 + Worker 骨架 | 待办持久化；TUI 扫描 |
+
+> **实现顺序建议：M0 → M1 → M2.5 → M2 → M3**（Issue 监视是 TUI 主线，应先于 PR CI 门禁）。
 
 ## 3. M0 任务
 
@@ -41,19 +41,36 @@
 
 ## 5. M2 任务（待做）
 
-- [ ] `internal/prcheck`
-- [ ] `internal/notify`（slack / feishu / dingtalk）
-- [ ] `internal/headless` PR 检测实现
-- [ ] TUI `/check`
-- [ ] `.github/workflows/pr-check.yml`
+- [x] `internal/prcheck` — `check` / `rules` / `report` 分层
+- [x] `internal/notify` — Slack / 飞书 / 钉钉 + `FromAppConfig`
+- [x] `internal/headless/pr.go` — 默认 CI 路径，与 issue scan 分离
+- [x] TUI `/check` — 仅展示报告，不发 notify
+- [x] `.github/workflows/pr-check.yml`
 
-## 6. M2.5 任务（待做）
+**M2 验收：**
 
-- [ ] `internal/issuewatch`
-- [ ] `internal/todo`
-- [ ] `internal/worker`
-- [ ] TUI 待办面板 + scanner goroutine
-- [ ] `/mode` 切换 manual / semi / full
+1. TUI `/check` 对当前分支 PR 输出 pass/fail 报告
+2. `OPS_AGENT_CI=1` + 失败 PR → webhook 推送 + exit 1
+3. notify 三通道并行，单通道失败汇总 error
+4. 检测规则 MVP：checks 全绿 + 无 merge conflict
+
+## 6. M2.5 任务
+
+- [x] `internal/issuewatch` — `filter` / `fetch` / `tui` / `ci` 分层
+- [x] `internal/todo` — 持久化 + `ShouldEnqueue` 去重
+- [x] `internal/worker` — M2.5 骨架（M3 前不自动推进）
+- [x] TUI scanner — 仅 `ScanToTodo`，与 Worker 解耦
+- [x] TUI 待办面板 — j/k 选中、i 详情、d 忽略
+- [x] `/mode` / `M` 切换 manual / semi / full
+- [x] headless issue scan — `ScanMatches` + notify，**不写 todo**
+
+**M2.5 验收：**
+
+1. TUI 启动后定时扫描，命中 issue 写入 `%AppData%/ops-agent/todo.json`
+2. 左侧面板显示 `in_todo` 条目；`d` 可 dismiss 且不再入队
+3. `i` 或 `/issue N` 可查看详情
+4. semi/full 模式下条目保持 `in_todo`（不 fake ready）
+5. `OPS_AGENT_ISSUE_SCAN=1` 只 notify，不创建/修改 todo 文件
 
 ## 7. M3 任务（待做）
 
