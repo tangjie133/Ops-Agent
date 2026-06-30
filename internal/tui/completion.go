@@ -23,7 +23,8 @@ var slashCommands = []commandSpec{
 	{name: "/status", hint: "gh 与 llama 状态"},
 	{name: "/clean", hint: "清空输出区"},
 	{name: "/check", hint: "PR 检测"},
-	{name: "/mode", hint: "切换模式", args: []string{"manual", "semi", "full"}},
+	{name: "/webhook", hint: "Webhook 配置菜单"},
+	{name: "/mode", hint: "模式选择菜单"},
 	{name: "/issue", hint: "查看 issue"},
 	{name: "/feedback", hint: "反馈（M4）"},
 }
@@ -53,8 +54,6 @@ func computeCompletions(line string, todos []todo.Item) []Completion {
 
 	// 补全子参数
 	switch spec.name {
-	case "/mode":
-		return argCompletions(spec, parts, trailingSpace)
 	case "/issue":
 		return issueCompletions(parts, trailingSpace, todos)
 	default:
@@ -111,9 +110,10 @@ func issueCompletions(parts []string, trailingSpace bool, todos []todo.Item) []C
 		var out []Completion
 		for _, it := range todos {
 			num := fmt.Sprintf("%d", it.Number)
-			if strings.HasPrefix(num, prefix) {
+			ref := it.Repo + "#" + num
+			if strings.HasPrefix(ref, prefix) || strings.HasPrefix(num, prefix) {
 				out = append(out, Completion{
-					Text: "/issue " + num,
+					Text: "/issue " + ref,
 					Hint: truncate(it.Title, 24),
 				})
 			}
@@ -124,7 +124,7 @@ func issueCompletions(parts []string, trailingSpace bool, todos []todo.Item) []C
 		var out []Completion
 		for _, it := range todos {
 			out = append(out, Completion{
-				Text: "/issue " + fmt.Sprintf("%d", it.Number),
+				Text: "/issue " + it.Repo + "#" + fmt.Sprintf("%d", it.Number),
 				Hint: truncate(it.Title, 24),
 			})
 		}

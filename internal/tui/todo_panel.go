@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -72,7 +73,7 @@ func (m *Model) dismissSelectedTodo() {
 		m.appendOutput(fmt.Sprintf("忽略失败: %v", err))
 		return
 	}
-	m.appendOutput(fmt.Sprintf("已忽略 #%d", it.Number))
+	m.appendOutput(fmt.Sprintf("已忽略 %s#%d", it.Repo, it.Number))
 	m.ensureTodoSelection()
 }
 
@@ -81,8 +82,44 @@ func (m *Model) focusSelectedTodo() tea.Cmd {
 	if m.todoSel < 0 || m.todoSel >= len(active) {
 		return nil
 	}
-	num := active[m.todoSel].Number
-	return m.runCommand(fmt.Sprintf("/issue %d", num))
+	it := active[m.todoSel]
+	return m.runCommand(fmt.Sprintf("/issue %s#%d", it.Repo, it.Number))
+}
+
+// formatTodoEntry 两行展示：第一行 仓库#编号，第二行 标题。
+func formatTodoEntry(it todo.Item, width int, selected bool) []string {
+	if width < 12 {
+		width = 12
+	}
+	marker := " "
+	if selected {
+		marker = ">"
+	}
+	ref := todoFullRef(it.Repo, it.Number)
+	head := fmt.Sprintf("%s %s %s", marker, statusSymbol(it.Status), truncateASCII(ref, width-4))
+	title := truncateASCII(it.Title, width-3)
+	return []string{head, "   " + title}
+}
+
+func todoFullRef(repo string, number int) string {
+	repo = strings.TrimSpace(repo)
+	if repo == "" {
+		return fmt.Sprintf("#%d", number)
+	}
+	return fmt.Sprintf("%s#%d", repo, number)
+}
+
+func truncateASCII(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if len(s) <= max {
+		return s
+	}
+	if max == 1 {
+		return "…"
+	}
+	return s[:max-1] + "…"
 }
 
 func statusSymbol(st todo.Status) string {

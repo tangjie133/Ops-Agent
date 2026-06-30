@@ -16,6 +16,14 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
+	if headless.ShouldRunWebhookOnly() {
+		code := headless.RunWebhookOnly(cfg)
+		if code != 0 {
+			fmt.Fprintln(os.Stderr, "ops-agent: webhook-only run failed")
+		}
+		os.Exit(code)
+	}
+
 	if headless.ShouldRun() {
 		code := headless.Run(cfg)
 		if code != 0 {

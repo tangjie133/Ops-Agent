@@ -8,13 +8,24 @@ type IssuesEvent struct {
 	Repository Repository `json:"repository"`
 }
 
+type IssueCommentEvent struct {
+	Action     string     `json:"action"`
+	Issue      Issue      `json:"issue"`
+	Repository Repository `json:"repository"`
+}
+
 type Issue struct {
-	Number    int        `json:"number"`
-	Title     string     `json:"title"`
-	State     string     `json:"state"`
-	HTMLURL   string     `json:"html_url"`
-	Labels    []Label    `json:"labels"`
-	Assignees []Assignee `json:"assignees"`
+	Number       int          `json:"number"`
+	Title        string       `json:"title"`
+	State        string       `json:"state"`
+	HTMLURL      string       `json:"html_url"`
+	Labels       []Label      `json:"labels"`
+	Assignees    []Assignee   `json:"assignees"`
+	PullRequest  *PullRequest `json:"pull_request,omitempty"`
+}
+
+type PullRequest struct {
+	URL string `json:"url"`
 }
 
 type Label struct {
@@ -27,6 +38,10 @@ type Assignee struct {
 
 type Repository struct {
 	FullName string `json:"full_name"`
+}
+
+func (i Issue) IsPullRequest() bool {
+	return i.PullRequest != nil
 }
 
 func (i Issue) ToGitHubIssue() github.Issue {

@@ -54,6 +54,24 @@ var (
 
 	styleHelp = lipgloss.NewStyle().
 			Foreground(colorMuted)
+
+	styleModeMenuTitle = lipgloss.NewStyle().
+				Foreground(colorPrimary).
+				Bold(true)
+
+	styleModeMenuItem = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#D1D5DB"))
+
+	styleModeMenuSelected = lipgloss.NewStyle().
+				Foreground(colorPrimary).
+				Bold(true)
+
+	styleModeMenuDesc = lipgloss.NewStyle().
+				Foreground(colorMuted)
+
+	styleModeMenuHint = lipgloss.NewStyle().
+				Foreground(colorMuted).
+				Italic(true)
 )
 
 // bannerASCII: figlet "Ops-Agent" (standard) — left "Ops", right "Agent".
@@ -68,5 +86,29 @@ const outputPlaceholder = "输出区域 — 命令结果将显示在这里"
 
 // headerLineCount is the fixed header height (banner + welcome + status + spacing).
 const headerLineCount = 12
-// footerLineCount is the fixed footer height (spacing + input + help).
+// footerLineCount is the default footer height (spacing + input + help).
 const footerLineCount = 3
+
+// menuFooterLines is the reserved footer height when a config menu is open.
+const menuFooterLines = 15
+
+func (m *Model) activeFooterLines() int {
+	if m.webhookMenuOpen || m.modeMenuOpen {
+		lines := menuFooterLines
+		if m.webhookMenuOpen {
+			switch m.webhookMenuLevel {
+			case webhookMenuLevelConnection:
+				lines = 24
+			case webhookMenuLevelRoot:
+				lines = 20
+			case webhookMenuLevelIssue:
+				lines = 16
+			}
+		}
+		if m.webhookMenuOpen && m.webhookEditField >= 0 {
+			lines += 4
+		}
+		return lines
+	}
+	return footerLineCount
+}

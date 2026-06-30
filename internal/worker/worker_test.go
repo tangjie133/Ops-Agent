@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
@@ -15,7 +16,7 @@ func TestProcessSemiMode(t *testing.T) {
 	_ = store.Upsert(todo.Item{Repo: "o/r", Number: 1, Title: "x", Status: todo.StatusInTodo})
 
 	w := New(cfg, store)
-	n, err := w.Process(t.Context())
+	n, err := w.Process(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +37,7 @@ func TestProcessManualSkips(t *testing.T) {
 	_ = store.Upsert(todo.Item{Repo: "o/r", Number: 2, Status: todo.StatusInTodo})
 
 	w := New(cfg, store)
-	n, err := w.Process(t.Context())
+	n, err := w.Process(context.Background())
 	if err != nil || n != 0 {
 		t.Fatalf("n=%d err=%v", n, err)
 	}

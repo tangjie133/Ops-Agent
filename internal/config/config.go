@@ -34,11 +34,12 @@ type IssueWatchConfig struct {
 }
 
 type WebhookConfig struct {
-	Enabled   bool   `yaml:"enabled"`
-	Listen    string `yaml:"listen"`
-	Path      string `yaml:"path"`
-	Secret    string `yaml:"secret"`
-	PublicURL string `yaml:"public_url"` // GitHub App 中填写的公网 Webhook URL（smee/ngrok）
+	Enabled   bool                `yaml:"enabled"`
+	Listen    string              `yaml:"listen"`
+	Path      string              `yaml:"path"`
+	Secret    string              `yaml:"secret"`
+	PublicURL string              `yaml:"public_url"` // GitHub Payload URL（smee.io 频道等）
+	Tunnel    WebhookTunnelConfig `yaml:"tunnel"`
 }
 
 type TodoConfig struct {
@@ -94,6 +95,9 @@ func Default() *Config {
 			Listen:  "127.0.0.1:8765",
 			Path:    "/webhooks/github",
 			Secret:  "",
+			Tunnel: WebhookTunnelConfig{
+				Smee: SmeeTunnelConfig{Enabled: true},
+			},
 		},
 		IssueAutomation: IssueAutomationConfig{
 			Mode:               ModeSemi,
@@ -151,6 +155,8 @@ func Load() (*Config, error) {
 	}
 	if cfg.Webhook.Path == "" {
 		cfg.Webhook.Path = "/webhooks/github"
+	} else if cfg.Webhook.Path[0] != '/' {
+		cfg.Webhook.Path = "/" + cfg.Webhook.Path
 	}
 	if cfg.IssueAutomation.Mode == "" {
 		cfg.IssueAutomation.Mode = ModeSemi
@@ -188,7 +194,6 @@ func resolveConfigPath() (string, error) {
 func expandEnv(cfg *Config) {
 	cfg.AI.BaseURL = os.ExpandEnv(cfg.AI.BaseURL)
 	cfg.AI.APIKey = os.ExpandEnv(cfg.AI.APIKey)
-	cfg.Webhook.Secret = os.ExpandEnv(cfg.Webhook.Secret)
 	for name, ch := range cfg.Notify.Channels {
 		ch.WebhookURL = os.ExpandEnv(ch.WebhookURL)
 		cfg.Notify.Channels[name] = ch
@@ -220,6 +225,59 @@ func (c *IssueAutomationConfig) SetMode(mode string) {
 		c.AutoAnalyze = true
 		c.ConfirmBeforeReply = true
 	}
+}
+
+// IsValidMode 判断是否为支持的自动化模式。
+func IsValidMode(mode string) bool {
+	switch strings.ToLower(mode) {
+	case ModeManual, ModeSemi, ModeFull:
+		return true
+	default:
+		return false
+	}
+}
+
+// ModeTitle 返回模式的中文名称。
+func ModeTitle(mode string) string {
+	switch mode {
+	case ModeManual:
+		return "手动"
+	case ModeFull:
+		return "全自动"
+	default:
+		return "半自动"
+	}
+}
+
+// ModeDescription 返回模式的简要说明。
+func ModeDescription(mode string) string {
+	switch mode {
+	case ModeManual:
+		return "Issue 入待办后仅展示，不自动分析或回复"
+	case ModeFull:
+		return "自动 AI 分析并回复 issue，无需人工确认"
+	default:
+		return "自动 AI 分析并生成回复草稿，发送前需人工确认"
+	}
+}
+
+func (c *IssueAutomationConfig) ModeSummary() string {
+	return fmt.Sprintf("%s (%s) — %s", c.ModeLabel(), ModeTitle(c.Mode), ModeDescription(c.Mode))
+}
+
+// FormatModesHelp 列出全部模式及说明；current 为当前模式时在对应行前加 *。
+func FormatModesHelp(current string) string {
+	modes := []string{ModeManual, ModeSemi, ModeFull}
+	var b strings.Builder
+	b.WriteString("模式说明:\n")
+	for _, mode := range modes {
+		prefix := "  "
+		if mode == current {
+			prefix = "* "
+		}
+		b.WriteString(fmt.Sprintf("%s%s (%s) — %s\n", prefix, mode, ModeTitle(mode), ModeDescription(mode)))
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func TodoStorePath() string {

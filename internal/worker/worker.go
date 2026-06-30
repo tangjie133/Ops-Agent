@@ -62,14 +62,7 @@ func (w *Worker) processItem(item todo.Item) error {
 }
 
 func (w *Worker) DescribeMode() string {
-	switch w.cfg.IssueAutomation.Mode {
-	case config.ModeManual:
-		return "manual — 扫描进待办，不自动分析"
-	case config.ModeFull:
-		return "full — 自动分析（M3 后将自动回复）"
-	default:
-		return "semi — 自动分析 → ready，M3 后确认回复"
-	}
+	return config.ModeDescription(w.cfg.IssueAutomation.Mode)
 }
 
 func FormatProcessed(n int) string {

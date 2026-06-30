@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDefaultMode(t *testing.T) {
 	cfg := Default()
@@ -18,5 +21,17 @@ func TestSetMode(t *testing.T) {
 	cfg.IssueAutomation.SetMode(ModeFull)
 	if cfg.IssueAutomation.Mode != ModeFull || cfg.IssueAutomation.ConfirmBeforeReply {
 		t.Fatal("full mode should skip confirm")
+	}
+}
+
+func TestModeDescription(t *testing.T) {
+	if ModeDescription(ModeManual) == "" || ModeDescription(ModeSemi) == "" || ModeDescription(ModeFull) == "" {
+		t.Fatal("mode descriptions should not be empty")
+	}
+	if !IsValidMode(ModeSemi) || IsValidMode("invalid") {
+		t.Fatal("IsValidMode mismatch")
+	}
+	if !strings.Contains(FormatModesHelp(ModeSemi), "* semi") {
+		t.Fatal("FormatModesHelp should mark current mode")
 	}
 }

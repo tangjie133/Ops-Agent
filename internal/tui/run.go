@@ -7,11 +7,12 @@ import (
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
+	"github.com/ZzedJay/Ops-Agent/internal/webhook"
 )
 
-// WebhookIssueMsg 由 webhook 服务投递，表示新 issue 已入待办。
-type WebhookIssueMsg struct {
-	Item todo.Item
+// WebhookEventMsg 由 webhook 服务投递，表示收到 GitHub 事件。
+type WebhookEventMsg struct {
+	Event webhook.Event
 }
 
 func Run(cfg *config.Config) error {
@@ -23,8 +24,8 @@ func Run(cfg *config.Config) error {
 	m := NewModel(cfg, store, nil)
 	p := tea.NewProgram(&m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
-	runtime := NewWebhookRuntime(cfg, store, func(item todo.Item) {
-		p.Send(WebhookIssueMsg{Item: item})
+	runtime := NewWebhookRuntime(cfg, store, func(evt webhook.Event) {
+		p.Send(WebhookEventMsg{Event: evt})
 	})
 	m.whRuntime = runtime
 

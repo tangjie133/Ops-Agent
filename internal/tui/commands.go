@@ -18,7 +18,7 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, stor
 		return ""
 	}
 	if !strings.HasPrefix(line, "/") {
-		return fmt.Sprintf("收到: %s\n\n（Agent 将在 M3 实现；可先使用 /status、/mode、/help）", line)
+		return fmt.Sprintf("收到: %s\n\n（Agent 将在 M3 实现；可先使用 /status、/webhook、/mode、/help）", line)
 	}
 
 	parts := strings.Fields(line)
@@ -30,22 +30,18 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, stor
 	case "/status":
 		return cmdStatus(ctx, gh, cfg)
 	case "/mode":
-		if len(parts) < 2 {
-			return fmt.Sprintf("当前模式: %s\n用法: /mode manual|semi|full", cfg.IssueAutomation.ModeLabel())
-		}
-		cfg.IssueAutomation.SetMode(parts[1])
-		return fmt.Sprintf("已切换为: %s", cfg.IssueAutomation.ModeLabel())
+		return "输入 /mode 后按 Enter 打开模式选择菜单。"
+	case "/webhook":
+		return "输入 /webhook 后按 Enter 打开 Webhook 配置菜单。"
 	case "/check":
 		return cmdCheck(ctx, gh)
 	case "/issue":
-		if len(parts) < 2 {
-			return "用法: /issue <number>"
+		cwdRepo, _ := gh.RepoFromCwd(ctx)
+		repo, num, errMsg := parseIssueArgs(parts, store, cwdRepo)
+		if errMsg != "" {
+			return errMsg
 		}
-		var num int
-		if _, err := fmt.Sscanf(parts[1], "%d", &num); err != nil || num <= 0 {
-			return "无效的 issue 编号"
-		}
-		return cmdIssue(ctx, gh, store, num)
+		return cmdIssue(ctx, gh, store, repo, num)
 	case "/feedback":
 		return "反馈功能占位（M4）。"
 	case "/clean", "/clear":
@@ -60,16 +56,18 @@ func helpText() string {
   /help              显示帮助
   /status            检查 gh 与 llama-server
   /clean             清空输出区域
-  /mode [manual|semi|full]  切换 Issue 自动化模式
+  /webhook           打开 Webhook 配置菜单（二级菜单，自动保存）
+  /mode              打开模式选择菜单（1/2/3 或 j/k + Enter，自动保存）
   /check             检测当前分支 PR（checks + 冲突）
-  /issue <n>         查看 issue 详情与待办状态
+  /issue owner/repo#n  查看 issue 详情（i 键使用待办所属仓库）
   /feedback          反馈（M4）
+
+` + config.FormatModesHelp("") + `
 
 快捷键:
   Enter        发送
   Tab / →      命令自动补全
   Ctrl+C       退出
-  M            切换 manual → semi → full
   j / k          待办列表上/下（输入框为空时）
   i              查看选中待办 issue 详情
   d              忽略选中待办
@@ -117,15 +115,11 @@ func cmdStatus(ctx context.Context, gh *github.Client, cfg *config.Config) strin
 		b.WriteString(fmt.Sprintf("llama-server: %s\n", health.Message))
 	}
 
-	b.WriteString(fmt.Sprintf("\n自动化模式: %s\n", cfg.IssueAutomation.ModeLabel()))
+	b.WriteString(fmt.Sprintf("\n自动化模式: %s\n", cfg.IssueAutomation.ModeSummary()))
 	b.WriteString(fmt.Sprintf("Issue 监视: enabled=%v labels=%v (webhook)\n",
 		cfg.IssueWatch.Enabled, cfg.IssueWatch.Labels))
 	if cfg.Webhook.Enabled {
-		b.WriteString(fmt.Sprintf("Webhook 本地: %s\n", cfg.Webhook.LocalURL()))
-		if cfg.Webhook.PublicURL != "" {
-			b.WriteString(fmt.Sprintf("GitHub App URL: %s\n", cfg.Webhook.PublicURL))
-		}
-		b.WriteString(fmt.Sprintf("Secret 已配置: %v\n", cfg.Webhook.Secret != ""))
+		b.WriteString(fmt.Sprintf("Webhook: %s (%s)\n", cfg.Webhook.LocalURL(), cfg.WebhookSummary()))
 	} else {
 		b.WriteString("Webhook: 已禁用\n")
 	}
@@ -142,18 +136,14 @@ func cmdCheck(ctx context.Context, gh *github.Client) string {
 	return res.FormatReport()
 }
 
-func cmdIssue(ctx context.Context, gh *github.Client, store *todo.FileStore, num int) string {
-	repo, err := gh.RepoFromCwd(ctx)
-	if err != nil {
-		return fmt.Sprintf("无法解析仓库: %v", err)
-	}
+func cmdIssue(ctx context.Context, gh *github.Client, store *todo.FileStore, repo string, num int) string {
 	iss, err := gh.IssueView(ctx, repo, num)
 	if err != nil {
-		return fmt.Sprintf("读取 issue 失败: %v", err)
+		return fmt.Sprintf("读取 issue 失败 (%s): %v", formatIssueRef(repo, num), err)
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("── Issue #%d ──\n\n", iss.Number))
+	b.WriteString(fmt.Sprintf("── %s ──\n\n", formatIssueRef(repo, iss.Number)))
 	b.WriteString(iss.Title + "\n")
 	b.WriteString(fmt.Sprintf("状态: %s\n", iss.State))
 	if iss.URL != "" {

@@ -56,5 +56,16 @@ func (w *WebhookConfig) LocalURL() string {
 	if path == "" {
 		path = "/webhooks/github"
 	}
+	if path[0] != '/' {
+		path = "/" + path
+	}
 	return "http://" + listen + path
+}
+
+func (w *WebhookConfig) HealthURL() string {
+	listen := w.Listen
+	if listen == "" {
+		listen = "127.0.0.1:8765"
+	}
+	return "http://" + listen + "/healthz"
 }
