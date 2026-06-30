@@ -39,6 +39,14 @@ var (
 			Foreground(colorPrimary).
 			Bold(true)
 
+	styleTodoAnalyzing = lipgloss.NewStyle().
+			Foreground(colorWarn).
+			Bold(true)
+
+	styleLogHeader = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6B7280")).
+			Bold(true)
+
 	styleCompleteBar = lipgloss.NewStyle().
 			Foreground(colorMuted)
 
@@ -57,6 +65,9 @@ var (
 
 	styleWebhookEvent = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#A5B4FC"))
+
+	styleWorkerEvent = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#34D399"))
 
 	styleHelp = lipgloss.NewStyle().
 			Foreground(colorMuted)
@@ -88,7 +99,7 @@ const bannerASCII = `   ___                    _                    _
   \___/| .__/|___/    /_/   \_\__, |\___|_| |_|\__|
        |_|                    |___/`
 
-const outputPlaceholder = "输出区域 — 命令结果将显示在这里"
+const outputPlaceholder = "对话 — 命令与 Agent 回复将显示在这里"
 
 // headerLineCount is the fixed header height (banner + welcome + status + spacing).
 const headerLineCount = 12
@@ -99,6 +110,19 @@ const footerLineCount = 3
 const menuFooterLines = 15
 
 func (m *Model) activeFooterLines() int {
+	if m.confirmOpen {
+		return 18
+	}
+	if m.aiMenuOpen {
+		lines := 20
+		if m.aiMenuLevel == aiMenuLevelConnection {
+			lines = 22
+		}
+		if m.aiEditField >= 0 {
+			lines += 4
+		}
+		return lines
+	}
 	if m.webhookMenuOpen || m.modeMenuOpen {
 		lines := menuFooterLines
 		if m.webhookMenuOpen {

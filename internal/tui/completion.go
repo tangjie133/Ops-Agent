@@ -24,6 +24,8 @@ var slashCommands = []commandSpec{
 	{name: "/clean", hint: "清空输出区"},
 	{name: "/check", hint: "PR 检测"},
 	{name: "/webhook", hint: "Webhook 配置菜单"},
+	{name: "/model", hint: "模型配置菜单"},
+	{name: "/ai", hint: "模型配置菜单"},
 	{name: "/mode", hint: "模式选择菜单"},
 	{name: "/issue", hint: "查看 issue"},
 	{name: "/feedback", hint: "反馈（M4）"},
@@ -63,6 +65,11 @@ func computeCompletions(line string, todos []todo.Item) []Completion {
 
 func allCommandCompletions(prefix string) []Completion {
 	prefix = strings.ToLower(prefix)
+	for _, c := range slashCommands {
+		if c.name == prefix {
+			return []Completion{{Text: c.name, Hint: c.hint}}
+		}
+	}
 	var out []Completion
 	for _, c := range slashCommands {
 		if prefix == "" || strings.HasPrefix(c.name, prefix) {

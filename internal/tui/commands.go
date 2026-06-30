@@ -18,7 +18,7 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, stor
 		return ""
 	}
 	if !strings.HasPrefix(line, "/") {
-		return fmt.Sprintf("收到: %s\n\n（Agent 将在 M3 实现；可先使用 /status、/webhook、/mode、/help）", line)
+		return "" // handled by Agent in model
 	}
 
 	parts := strings.Fields(line)
@@ -31,6 +31,8 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, stor
 		return cmdStatus(ctx, gh, cfg)
 	case "/mode":
 		return "输入 /mode 后按 Enter 打开模式选择菜单。"
+	case "/model", "/ai":
+		return "输入 /model 后按 Enter 打开模型配置菜单。"
 	case "/webhook":
 		return "输入 /webhook 后按 Enter 打开 Webhook 配置菜单。"
 	case "/check":
@@ -57,6 +59,7 @@ func helpText() string {
   /status            检查 gh 与 llama-server
   /clean             清空输出区域
   /webhook           打开 Webhook 配置菜单（二级菜单，自动保存）
+  /model             打开模型配置菜单（base_url / model / api_key）
   /mode              打开模式选择菜单（1/2/3 或 j/k + Enter，自动保存）
   /check             检测当前分支 PR（checks + 冲突）
   /issue owner/repo#n  查看 issue 详情（i 键使用待办所属仓库）
@@ -65,13 +68,19 @@ func helpText() string {
 ` + config.FormatModesHelp("") + `
 
 快捷键:
-  Enter        发送
+  Enter        发送（自然语言 → Agent）
   Tab / →      命令自动补全
   Ctrl+C       退出
-  j / k          待办列表上/下（输入框为空时）
-  i              查看选中待办 issue 详情
-  d              忽略选中待办
-  鼠标滚轮       在中间输出区滚动历史`
+  j / k        待办列表上/下（输入框为空时）
+  i            查看选中待办 issue 详情
+  p            发布 ready 草稿（semi 确认 / manual）
+  d            忽略选中待办
+  鼠标滚轮     在输出区滚动历史
+
+manual 模式聊天处理待办:
+  j/k 选中 → 「分析/处理这条」生成草稿 → 「发布」发帖 → 「忽略」移除
+
+semi/full: Worker 自动分析，ready 后按 p 发布`
 }
 
 func isOutputClearCommand(line string) bool {

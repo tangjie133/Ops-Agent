@@ -16,14 +16,15 @@ type AuthStatus struct {
 }
 
 type Issue struct {
-	Number    int     `json:"number"`
-	Title     string  `json:"title"`
-	Labels    []Label `json:"labels"`
-	Assignees []User  `json:"assignees"`
-	UpdatedAt string  `json:"updatedAt"`
-	URL       string  `json:"url"`
-	Body      string  `json:"body"`
-	State     string  `json:"state"`
+	Number    int            `json:"number"`
+	Title     string         `json:"title"`
+	Labels    []Label        `json:"labels"`
+	Assignees []User         `json:"assignees"`
+	UpdatedAt string         `json:"updatedAt"`
+	URL       string         `json:"url"`
+	Body      string         `json:"body"`
+	State     string         `json:"state"`
+	Comments  []IssueComment `json:"comments"`
 }
 
 type Label struct {
@@ -32,6 +33,11 @@ type Label struct {
 
 type User struct {
 	Login string `json:"login"`
+}
+
+type IssueComment struct {
+	Author User   `json:"author"`
+	Body   string `json:"body"`
 }
 
 type CheckContext struct {
@@ -199,7 +205,7 @@ func (c *Client) IssueList(ctx context.Context, opts IssueListOpts) ([]Issue, er
 func (c *Client) IssueView(ctx context.Context, repo string, num int) (*Issue, error) {
 	args := []string{
 		"issue", "view", fmt.Sprintf("%d", num),
-		"--json", "number,title,labels,assignees,updatedAt,url,body,state",
+		"--json", "number,title,labels,assignees,updatedAt,url,body,state,comments",
 	}
 	if repo != "" {
 		args = append(args, "-R", repo)
@@ -268,6 +274,13 @@ func (c *Client) PRChecks(ctx context.Context, repo string, num int) (*ChecksRes
 		return &ChecksResult{Raw: string(out)}, err
 	}
 	return &ChecksResult{Raw: strings.TrimSpace(string(out))}, nil
+}
+
+// CloneRepo 浅克隆仓库到 dest（使用 gh 凭证）。
+func (c *Client) CloneRepo(ctx context.Context, repo, dest string) error {
+	args := []string{"repo", "clone", repo, dest, "--", "--depth", "1"}
+	_, err := c.run(ctx, args...)
+	return err
 }
 
 func (c *Client) Available() bool {

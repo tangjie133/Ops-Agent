@@ -18,6 +18,8 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/webhook"
 )
 
+type spinnerTickMsg struct{}
+
 type startupDoneMsg struct {
 	ghOK   bool
 	ghWarn string
@@ -42,6 +44,7 @@ type Model struct {
 	input          textinput.Model
 	outputViewport viewport.Model
 	outputContent  string
+	log            logPanel
 	width          int
 	height         int
 
@@ -52,6 +55,7 @@ type Model struct {
 	repo   string
 
 	todoSel int
+	spinnerFrame int
 	ready   bool
 
 	modeMenuOpen bool
@@ -61,11 +65,23 @@ type Model struct {
 	webhookMenuLevel int
 	webhookMenuSel   int
 	webhookEditField int
+
+	aiMenuOpen  bool
+	aiMenuLevel int
+	aiMenuSel   int
+	aiEditField int
+	aiInput     textinput.Model
+
 	menuNotice       string
 	connInput        textinput.Model
 
 	completions []Completion
 	completeIdx int
+
+	confirmOpen  bool
+	confirmRepo  string
+	confirmNum   int
+	confirmDraft string
 }
 
 func NewModel(cfg *config.Config, store *todo.FileStore, wh *WebhookRuntime) Model {
@@ -82,6 +98,7 @@ func NewModel(cfg *config.Config, store *todo.FileStore, wh *WebhookRuntime) Mod
 		whRuntime:      wh,
 		input:          ti,
 		outputViewport: viewport.New(60, 8),
+		log:            newLogPanel(),
 	}
 	m.syncOutputViewport(true)
 	m.ensureTodoSelection()
@@ -93,6 +110,9 @@ func (m *Model) Init() tea.Cmd {
 		textinput.Blink,
 		m.runStartup(),
 		m.startWebhookCmd(),
+		m.workerTickCmd(),
+		m.runWorkerCmd(),
+		m.spinnerTickCmd(),
 	)
 }
 
@@ -144,6 +164,21 @@ func (m *Model) startWebhookCmd() tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.confirmOpen {
+			handled, postCmd := m.handleConfirmKey(msg.String())
+			if handled {
+				return m, postCmd
+			}
+		}
+		if m.aiMenuOpen && m.aiEditField >= 0 {
+			return m.handleAIConnEdit(msg)
+		}
+		if m.aiMenuOpen {
+			if m.handleAIMenuKey(msg.String()) {
+				return m, textinput.Blink
+			}
+			return m, nil
+		}
 		if m.webhookMenuOpen && m.webhookEditField >= 0 {
 			return m.handleWebhookConnEdit(msg)
 		}
@@ -161,9 +196,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "ctrl+l":
+			m.toggleLogPanel()
+			return m, nil
 		case "ctrl+c":
 			return m, tea.Quit
 		case "esc":
+			if m.confirmOpen {
+				m.closeConfirmMenu()
+				return m, nil
+			}
 			return m, tea.Quit
 		case "j":
 			if m.input.Value() == "" {
@@ -183,6 +225,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "i":
 			if m.input.Value() == "" {
 				return m, m.focusSelectedTodo()
+			}
+		case "p":
+			if m.input.Value() == "" {
+				m.openConfirmMenu()
+				return m, nil
 			}
 		case "tab":
 			if m.applyCompletionTab() {
@@ -212,6 +259,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.openWebhookMenu()
 				return m, textinput.Blink
 			}
+			if isAIMenuCommand(line) {
+				m.openAIMenu()
+				return m, textinput.Blink
+			}
+			if !strings.HasPrefix(line, "/") {
+				return m, m.runAgentChat(line)
+			}
 			return m, m.runCommand(line)
 		}
 
@@ -230,7 +284,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			lines = append(lines, styleStatusOK.Render("✓ GitHub CLI 就绪"))
 		}
 		if !m.aiOK {
-			lines = append(lines, styleStatusWarn.Render("⚠ "+m.aiWarn+"（AI 功能 M3 前不可用）"))
+			lines = append(lines, styleStatusWarn.Render("⚠ "+m.aiWarn+"（semi/full 需 llama-server）"))
 		} else {
 			lines = append(lines, styleStatusOK.Render("✓ llama-server 可达"))
 		}
@@ -256,16 +310,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case WebhookEventMsg:
-		m.appendOutput(styleWebhookEvent.Render(msg.Event.Message()))
+		m.appendLog(styleWebhookEvent.Render(msg.Event.Message()))
 		switch msg.Event.Kind {
 		case webhook.EventAdded, webhook.EventCommentAdded, webhook.EventClosed, webhook.EventReopened:
 			m.ensureTodoSelection()
 		}
-		return m, nil
+		return m, m.triggerWorkerIfNeeded()
+
+	case workerTickMsg:
+		return m, m.runWorkerCmd()
+
+	case workerDoneMsg:
+		return m, m.handleWorkerDone(msg)
+
+	case spinnerTickMsg:
+		if m.hasAnalyzingTodo() {
+			m.spinnerFrame++
+		}
+		return m, m.spinnerTickCmd()
 
 	case LogLineMsg:
 		if msg.Line != "" {
-			m.appendOutput(styleWebhookLog.Render(msg.Line))
+			m.appendLog(styleWebhookLog.Render(msg.Line))
 		}
 		return m, nil
 
@@ -273,6 +339,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.output != "" {
 			m.appendOutput(msg.output)
 		}
+		m.ensureTodoSelection()
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -288,7 +355,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	if m.modeMenuOpen || m.webhookMenuOpen {
+	if m.modeMenuOpen || m.webhookMenuOpen || m.aiMenuOpen || m.confirmOpen {
 		return m, nil
 	}
 	prev := m.input.Value()
@@ -333,6 +400,17 @@ func (m *Model) syncOutputViewport(stickBottom bool) {
 }
 
 func (m *Model) handleMouseScroll(msg tea.MouseMsg) bool {
+	if m.isInLogArea(msg.Y) {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.log.viewport.LineUp(3)
+			return true
+		case tea.MouseButtonWheelDown:
+			m.log.viewport.LineDown(3)
+			return true
+		}
+		return false
+	}
 	if !m.isInOutputArea(msg.Y) {
 		return false
 	}
@@ -351,8 +429,8 @@ func (m *Model) isInOutputArea(y int) bool {
 	if m.height == 0 {
 		return true
 	}
-	top := headerLineCount
-	bottom := m.height - m.activeFooterLines()
+	top := m.chatAreaTop()
+	bottom := m.chatAreaBottom()
 	return y >= top && y < bottom
 }
 
@@ -361,18 +439,21 @@ func (m *Model) layout() {
 		return
 	}
 
-	bodyH := m.height - headerLineCount - m.activeFooterLines()
-	if bodyH < 3 {
-		bodyH = 3
-	}
-
 	outW := m.outputWidth()
 	if outW < 10 {
 		outW = 10
 	}
 
+	chatH := m.chatHeight()
+	logH := m.logHeight()
+
 	m.outputViewport.Width = outW
-	m.outputViewport.Height = bodyH
+	m.outputViewport.Height = chatH
+
+	m.log.viewport.Width = outW
+	m.log.viewport.Height = max(3, logH)
+	m.syncLogViewport(m.log.viewport.AtBottom())
+
 	m.input.Width = max(20, m.width-6)
 	m.syncOutputViewport(m.outputViewport.AtBottom())
 }
@@ -412,14 +493,14 @@ func (m *Model) renderTodoPanel() string {
 	}
 	m.ensureTodoSelection()
 
-	maxLines := m.outputViewport.Height - 1
+	maxLines := m.bodyHeight() - 1
 	if maxLines < 1 {
 		maxLines = 5
 	}
 	lineWidth := m.todoPanelWidth() - 2
 	var lines []string
 	for i, it := range active {
-		entry := formatTodoEntry(it, lineWidth, i == m.todoSel)
+		entry := formatTodoEntry(it, lineWidth, i == m.todoSel, m.spinnerFrame)
 		if len(lines)+len(entry) > maxLines {
 			remaining := len(active) - i
 			if remaining > 0 {
@@ -431,6 +512,8 @@ func (m *Model) renderTodoPanel() string {
 			style := styleTodoItem
 			if i == m.todoSel && j == 0 {
 				style = styleTodoSelected
+			} else if j == 0 && it.Status == todo.StatusAnalyzing {
+				style = styleTodoAnalyzing
 			}
 			lines = append(lines, style.Render(line))
 		}
@@ -443,14 +526,20 @@ func (m *Model) renderBody() string {
 	todoPanel := styleTodoHeader.Render("待办") + "\n" + m.renderTodoPanel()
 
 	outW := m.outputWidth()
-	outView := m.outputViewport.View()
+	chatView := lipgloss.NewStyle().Width(outW).Height(m.chatHeight()).Render(m.outputViewport.View())
+
+	var right strings.Builder
+	right.WriteString(chatView)
+	if section := m.renderLogSection(outW); section != "" {
+		right.WriteString("\n")
+		right.WriteString(section)
+	}
 
 	if outW >= 20 && m.width > todoW+4 {
-		left := lipgloss.NewStyle().Width(todoW).Height(m.outputViewport.Height).Render(todoPanel)
-		right := lipgloss.NewStyle().Width(outW).Render(outView)
-		return lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right)
+		left := lipgloss.NewStyle().Width(todoW).Height(m.bodyHeight()).Render(todoPanel)
+		return lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right.String())
 	}
-	return outView
+	return right.String()
 }
 
 func (m *Model) renderFooter() string {
@@ -464,8 +553,21 @@ func (m *Model) renderFooter() string {
 		return b.String()
 	}
 
+	if m.aiMenuOpen {
+		b.WriteString(m.renderAIMenu())
+		b.WriteString(m.renderAIConnEditBar())
+		b.WriteString("\n")
+		return b.String()
+	}
+
 	if m.modeMenuOpen {
 		b.WriteString(m.renderModeMenu())
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	if m.confirmOpen {
+		b.WriteString(m.renderConfirmMenu())
 		b.WriteString("\n")
 		return b.String()
 	}
@@ -482,7 +584,7 @@ func (m *Model) renderFooter() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(styleHelp.Render("Tab/→ 补全 · j/k 待办 · 滚轮浏览输出 · /webhook /mode"))
+	b.WriteString(styleHelp.Render("Tab/→ 补全 · j/k 待办 · p 发布 · Ctrl+L 日志 · /model /webhook /mode"))
 	return b.String()
 }
 

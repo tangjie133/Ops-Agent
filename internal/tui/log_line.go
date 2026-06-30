@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// LogLineMsg 由 webhook/smee 等后台组件投递，写入右侧输出区。
+// LogLineMsg 由 webhook/smee 等后台组件投递，写入底部日志区。
 type LogLineMsg struct {
 	Line string
 }

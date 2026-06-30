@@ -72,10 +72,17 @@ type ChannelConfig struct {
 }
 
 type AIConfig struct {
-	Provider string `yaml:"provider"`
-	BaseURL  string `yaml:"base_url"`
-	Model    string `yaml:"model"`
-	APIKey   string `yaml:"api_key"`
+	Provider     string              `yaml:"provider"`
+	BaseURL      string              `yaml:"base_url"`
+	Model        string              `yaml:"model"`
+	APIKey       string              `yaml:"api_key"`
+	Investigator InvestigatorConfig  `yaml:"investigator"`
+	RepoContext  RepoContextConfig   `yaml:"repo_context"`
+}
+
+func (c *AIConfig) normalize() {
+	c.Investigator.Normalize()
+	c.RepoContext.Normalize()
 }
 
 type CIConfig struct {
@@ -121,6 +128,12 @@ func Default() *Config {
 			BaseURL:  "http://127.0.0.1:8080/v1",
 			Model:    "qwen2.5-coder",
 			APIKey:   "local",
+			Investigator: InvestigatorConfig{
+				MaxSteps: 12,
+			},
+			RepoContext: RepoContextConfig{
+				Enabled: true,
+			},
 		},
 		CI: CIConfig{
 			PRCheckOnEvents: []string{"pull_request"},
@@ -162,6 +175,7 @@ func Load() (*Config, error) {
 		cfg.IssueAutomation.Mode = ModeSemi
 	}
 
+	cfg.AI.normalize()
 	expandEnv(cfg)
 	return cfg, nil
 }
