@@ -9,10 +9,14 @@ import (
 )
 
 const (
-	ActionSearch  = "search_repo"
-	ActionRead    = "read_file"
-	ActionListDir = "list_dir"
-	ActionReply   = "reply"
+	ActionSearch    = "search_repo"
+	ActionRead      = "read_file"
+	ActionListDir   = "list_dir"
+	ActionFetchURL  = "fetch_url"
+	ActionWebSearch = "web_search"
+	ActionRAGSearch    = "rag_search"
+	ActionRepoValidate = "repo_validate"
+	ActionReply        = "reply"
 )
 
 // Action 模型返回的结构化动作（JSON）。
@@ -20,6 +24,7 @@ type Action struct {
 	Action    string `json:"action"`
 	Query     string `json:"query,omitempty"`
 	Path      string `json:"path,omitempty"`
+	URL       string `json:"url,omitempty"`
 	StartLine int    `json:"start_line,omitempty"`
 	EndLine   int    `json:"end_line,omitempty"`
 	Body      string `json:"body,omitempty"`
@@ -73,6 +78,20 @@ func (a Action) Validate() error {
 		}
 	case ActionListDir:
 		// path optional (root)
+	case ActionFetchURL:
+		if strings.TrimSpace(a.URL) == "" {
+			return fmt.Errorf("fetch_url requires url")
+		}
+	case ActionWebSearch:
+		if strings.TrimSpace(a.Query) == "" {
+			return fmt.Errorf("web_search requires query")
+		}
+	case ActionRAGSearch:
+		if strings.TrimSpace(a.Query) == "" {
+			return fmt.Errorf("rag_search requires query")
+		}
+	case ActionRepoValidate:
+		// query = 规范名，可空（使用 default_standard）
 	case ActionReply:
 		if strings.TrimSpace(a.Body) == "" {
 			return fmt.Errorf("reply requires body")
@@ -100,6 +119,7 @@ type StepEvent struct {
 	Action      string
 	Detail      string
 	Observation string
+	Err         string
 }
 
 type StepObserver func(StepEvent)

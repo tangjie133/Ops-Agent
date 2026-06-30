@@ -8,17 +8,29 @@ import (
 	"strings"
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
+	"github.com/ZzedJay/Ops-Agent/internal/rag"
+	"github.com/ZzedJay/Ops-Agent/internal/repovalidate"
 )
 
-// Toolbox 在克隆仓库沙箱内执行工具。
+// Toolbox 在克隆仓库沙箱内执行工具，并支持抓取外部文档与本地 RAG。
 type Toolbox struct {
 	repoPath string
 	cfg      config.InvestigatorConfig
+	ragCfg   config.RAGConfig
+	ragIdx   *rag.Index
+	proxy    config.ProxyConfig
+	log      Logger
 }
 
-func NewToolbox(repoPath string, cfg config.InvestigatorConfig) *Toolbox {
-	cfg.Normalize()
-	return &Toolbox{repoPath: repoPath, cfg: cfg}
+func (t *Toolbox) SetLogger(log Logger) {
+	t.log = log
+}
+
+func NewToolbox(repoPath string, invCfg config.InvestigatorConfig, ragCfg config.RAGConfig, ragIdx *rag.Index, proxy config.ProxyConfig) *Toolbox {
+	invCfg.Normalize()
+	ragCfg.Normalize()
+	proxy.Normalize()
+	return &Toolbox{repoPath: repoPath, cfg: invCfg, ragCfg: ragCfg, ragIdx: ragIdx, proxy: proxy}
 }
 
 func (t *Toolbox) RepoPath() string {
@@ -33,6 +45,14 @@ func (t *Toolbox) Run(ctx context.Context, a Action) (string, error) {
 		return t.readFile(a.Path, a.StartLine, a.EndLine)
 	case ActionListDir:
 		return t.listDir(a.Path)
+	case ActionFetchURL:
+		return t.fetchURL(ctx, a.URL)
+	case ActionWebSearch:
+		return t.webSearch(ctx, a.Query)
+	case ActionRAGSearch:
+		return t.ragSearch(a.Query)
+	case ActionRepoValidate:
+		return t.repoValidate(a.Query)
 	default:
 		return "", fmt.Errorf("unsupported tool action %q", a.Action)
 	}
@@ -174,6 +194,45 @@ func (t *Toolbox) search(ctx context.Context, query string) (string, error) {
 		fmt.Fprintf(&b, "%s:%d: %s\n", h.Path, h.Line, h.Text)
 	}
 	return strings.TrimSpace(b.String()), nil
+}
+
+func (t *Toolbox) ragSearch(query string) (string, error) {
+	if !t.ragCfg.On() || t.ragIdx == nil {
+		return "", fmt.Errorf("local knowledge RAG disabled or index not ready")
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return "", fmt.Errorf("empty query")
+	}
+	logf(t.log, "Investigator rag_search (知识库): %q", query)
+	hits := t.ragIdx.Search(query, t.ragCfg.SearchTopK)
+	logf(t.log, "Investigator rag_search · %d hits", len(hits))
+	if len(hits) == 0 {
+		return "no results (检查 knowledge/datasheets 与 standards 是否已放入并重建索引)", nil
+	}
+	return rag.FormatHits(hits), nil
+}
+
+func (t *Toolbox) repoValidate(standardName string) (string, error) {
+	standardsDir := filepath.Join(config.KnowledgeDir(t.ragCfg), "standards")
+	standardName = strings.TrimSpace(standardName)
+	if standardName == "" {
+		standardName = t.ragCfg.DefaultStandard
+	}
+	if standardName == "" {
+		names, _ := repovalidate.ListStandards(standardsDir)
+		if len(names) == 0 {
+			return "", fmt.Errorf("no standards in %s", standardsDir)
+		}
+		standardName = names[0]
+	}
+	logf(t.log, "Investigator repo_validate: standard=%q path=%s", standardName, t.repoPath)
+	std, err := repovalidate.LoadStandard(standardsDir, standardName)
+	if err != nil {
+		return "", err
+	}
+	report := repovalidate.Validate(t.repoPath, std)
+	return report.Format(), nil
 }
 
 type grepHit struct {

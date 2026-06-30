@@ -26,6 +26,8 @@ var slashCommands = []commandSpec{
 	{name: "/webhook", hint: "Webhook 配置菜单"},
 	{name: "/model", hint: "模型配置菜单"},
 	{name: "/ai", hint: "模型配置菜单"},
+	{name: "/proxy", hint: "网络代理配置菜单"},
+	{name: "/vpn", hint: "网络代理配置菜单"},
 	{name: "/mode", hint: "模式选择菜单"},
 	{name: "/issue", hint: "查看 issue"},
 	{name: "/feedback", hint: "反馈（M4）"},

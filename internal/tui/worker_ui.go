@@ -30,11 +30,15 @@ func (m *Model) workerTickCmd() tea.Cmd {
 }
 
 func (m *Model) runWorkerCmd() tea.Cmd {
+	invLog := m.investigatorLogFn
 	return func() tea.Msg {
 		if !m.aiOK || m.cfg.IssueAutomation.Mode == config.ModeManual {
 			return workerDoneMsg{}
 		}
 		w := worker.New(m.cfg, m.store, m.gh)
+		if invLog != nil {
+			w.SetInvestigatorLog(invLog)
+		}
 		res, err := w.Process(context.Background())
 		return workerDoneMsg{result: res, err: err}
 	}
@@ -43,15 +47,15 @@ func (m *Model) runWorkerCmd() tea.Cmd {
 func (m *Model) handleWorkerDone(msg workerDoneMsg) tea.Cmd {
 	if msg.err != nil {
 		if msg.result != nil && msg.result.ErrMsg != "" {
-			m.appendLog(styleStatusErr.Render("Worker: " + msg.result.ErrMsg))
+			m.appendLogKind(logKindError, "Worker: "+msg.result.ErrMsg)
 		} else {
-			m.appendLog(styleStatusErr.Render("Worker: " + msg.err.Error()))
+			m.appendLogKind(logKindError, "Worker: "+msg.err.Error())
 		}
 		m.ensureTodoSelection()
 		return m.workerTickCmd()
 	}
 	if text := worker.FormatResult(msg.result); text != "" {
-		m.appendLog(styleWorkerEvent.Render(text))
+		m.appendLogKind(logKindWorker, text)
 		if msg.result != nil && (msg.result.Ready || msg.result.Posted) {
 			m.ensureTodoSelection()
 		}
@@ -140,6 +144,7 @@ func (m *Model) renderConfirmMenu() string {
 }
 
 func (m *Model) runAgentChat(line string) tea.Cmd {
+	invLog := m.investigatorLogFn
 	return func() tea.Msg {
 		cx := agent.ChatContext{}
 		active := m.activeTodos()
@@ -148,6 +153,9 @@ func (m *Model) runAgentChat(line string) tea.Cmd {
 			cx.Selected = &it
 		}
 		a := agent.New(m.cfg, m.gh, m.store)
+		if invLog != nil {
+			a.SetInvestigatorLog(invLog)
+		}
 		out, err := a.Chat(context.Background(), line, cx)
 		if err != nil {
 			return commandDoneMsg{output: "Agent: " + err.Error()}

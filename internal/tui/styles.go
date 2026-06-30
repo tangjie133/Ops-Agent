@@ -69,6 +69,9 @@ var (
 	styleWorkerEvent = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#34D399"))
 
+	styleInvestigatorLog = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FBBF24"))
+
 	styleHelp = lipgloss.NewStyle().
 			Foreground(colorMuted)
 
@@ -119,6 +122,16 @@ func (m *Model) activeFooterLines() int {
 			lines = 22
 		}
 		if m.aiEditField >= 0 {
+			lines += 4
+		}
+		return lines
+	}
+	if m.proxyMenuOpen {
+		lines := 20
+		if m.proxyMenuLevel == proxyMenuLevelConnection {
+			lines = 22
+		}
+		if m.proxyEditField >= 0 {
 			lines += 4
 		}
 		return lines

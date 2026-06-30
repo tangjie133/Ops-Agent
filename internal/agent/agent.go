@@ -16,10 +16,15 @@ const chatSystemPrompt = `你是 Ops-Agent，GitHub 运维 TUI 助手。
 回答简洁，使用中文。`
 
 type Agent struct {
-	cfg   *config.Config
-	gh    *github.Client
-	store *todo.FileStore
-	chat  aiClient
+	cfg    *config.Config
+	gh     *github.Client
+	store  *todo.FileStore
+	chat   aiClient
+	invLog func(string)
+}
+
+func (a *Agent) SetInvestigatorLog(log func(string)) {
+	a.invLog = log
 }
 
 func New(cfg *config.Config, gh *github.Client, store *todo.FileStore) *Agent {

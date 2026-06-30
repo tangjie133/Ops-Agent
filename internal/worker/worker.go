@@ -10,6 +10,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/ai"
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
+	"github.com/ZzedJay/Ops-Agent/internal/investigator"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
@@ -28,17 +29,22 @@ type Worker struct {
 	store    *todo.FileStore
 	analyzer Analyzer
 	poster   Poster
+	invLog   investigator.Logger
 
 	mu           sync.Mutex
 	hourWindow   time.Time
 	hourPosted   int
 }
 
+func (w *Worker) SetInvestigatorLog(log investigator.Logger) {
+	w.invLog = log
+}
+
 func New(cfg *config.Config, store *todo.FileStore, gh *github.Client) *Worker {
 	return &Worker{
 		cfg:      cfg,
 		store:    store,
-		analyzer: ai.NewIssueAnalyzer(cfg.AI, gh),
+		analyzer: ai.NewIssueAnalyzer(cfg.AI, cfg.Proxy, gh),
 		poster:   gh,
 	}
 }
@@ -93,6 +99,10 @@ func (w *Worker) processItem(ctx context.Context, item todo.Item) (*Result, erro
 
 	if err := w.store.Transition(item.Repo, item.Number, todo.StatusAnalyzing); err != nil {
 		return res, err
+	}
+
+	if ia, ok := w.analyzer.(*ai.IssueAnalyzer); ok && w.invLog != nil {
+		ia.SetLogger(w.invLog)
 	}
 
 	draft, err := w.analyzer.AnalyzeIssue(ctx, item.Repo, item.Number)

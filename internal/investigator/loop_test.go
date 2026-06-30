@@ -42,7 +42,7 @@ func TestLoopSearchThenReply(t *testing.T) {
 
 	cfg := config.InvestigatorConfig{MaxSteps: 8, SearchMaxHits: 10}
 	cfg.Normalize()
-	tools := NewToolbox(dir, cfg)
+	tools := NewToolbox(dir, cfg, config.RAGConfig{}, nil, config.ProxyConfig{})
 
 	chat := &stubChat{outputs: []string{
 		`{"action":"search_repo","query":"enableFrequency"}`,
@@ -68,7 +68,7 @@ func TestToolboxListDir(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "a.go"), []byte("package main\n"), 0o644)
 	cfg := config.InvestigatorConfig{}
 	cfg.Normalize()
-	tools := NewToolbox(dir, cfg)
+	tools := NewToolbox(dir, cfg, config.RAGConfig{}, nil, config.ProxyConfig{})
 	out, err := tools.Run(context.Background(), Action{Action: ActionListDir})
 	if err != nil {
 		t.Fatal(err)

@@ -23,6 +23,7 @@ func Run(cfg *config.Config) error {
 
 	m := NewModel(cfg, store, nil)
 	p := tea.NewProgram(&m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	m.bindProgramSend(p.Send)
 
 	runtime := NewWebhookRuntime(cfg, store, func(evt webhook.Event) {
 		p.Send(WebhookEventMsg{Event: evt})

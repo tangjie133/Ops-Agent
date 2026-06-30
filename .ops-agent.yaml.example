@@ -64,8 +64,35 @@ ai:
     read_file_max_bytes: 16384
     search_max_hits: 30
     total_context_bytes: 96000
+    web_search_enabled: true
+    web_fetch_enabled: true
+    fetch_max_bytes: 48000
+    fetch_timeout_sec: 20
+    web_search_max_results: 8
   repo_context:
     enabled: true
+  rag:
+    enabled: true
+    # knowledge_dir: ""   # 默认 ~/.local/share/ops-agent/knowledge
+    reindex_on_analyze: true
+    default_standard: arduino-library
+    inject_top_k: 4
+    search_top_k: 8
+    chunk_lines: 48
+    chunk_overlap_lines: 8
+    max_file_bytes: 512000
+    max_chunks_total: 8000
+
+# 知识库目录结构（首次分析时自动创建）:
+#   knowledge/standards/   仓库格式 YAML（repo_validate 使用）
+#   knowledge/datasheets/  芯片数据手册 Markdown/文本
+#   knowledge/repos/       按 owner/repo/ 的补充说明
+
+proxy:
+  enabled: false
+  https_proxy: http://127.0.0.1:7890
+  http_proxy: ""
+  no_proxy: "127.0.0.1,localhost"
 
 ci:
   pr_check_on_events:

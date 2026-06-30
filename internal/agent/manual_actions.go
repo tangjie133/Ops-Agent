@@ -44,7 +44,10 @@ func (a *Agent) manualAnalyze(ctx context.Context, item todo.Item) (string, bool
 		return "", true, err
 	}
 
-	analyzer := ai.NewIssueAnalyzer(a.cfg.AI, a.gh)
+	analyzer := ai.NewIssueAnalyzer(a.cfg.AI, a.cfg.Proxy, a.gh)
+	if a.invLog != nil {
+		analyzer.SetLogger(a.invLog)
+	}
 	draft, err := analyzer.AnalyzeIssue(ctx, item.Repo, item.Number)
 	if err != nil {
 		_ = a.store.Transition(item.Repo, item.Number, todo.StatusFailed)

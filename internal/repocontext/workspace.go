@@ -10,6 +10,7 @@ import (
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
+	"github.com/ZzedJay/Ops-Agent/internal/netproxy"
 )
 
 // Workspace 管理本地仓库克隆缓存（供 Investigator 工具使用）。
@@ -17,14 +18,17 @@ type Workspace struct {
 	cacheRoot string
 	gh        *github.Client
 	cfg       config.RepoContextConfig
+	proxy     config.ProxyConfig
 }
 
-func NewWorkspace(cfg config.RepoContextConfig, gh *github.Client) *Workspace {
+func NewWorkspace(cfg config.RepoContextConfig, proxy config.ProxyConfig, gh *github.Client) *Workspace {
 	cfg.Normalize()
+	proxy.Normalize()
 	return &Workspace{
 		cacheRoot: config.ReposCacheDir(),
 		gh:        gh,
 		cfg:       cfg,
+		proxy:     proxy,
 	}
 }
 
@@ -71,6 +75,7 @@ func isGitRepo(dir string) bool {
 
 func (w *Workspace) gitPull(ctx context.Context, dir string) error {
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "pull", "--ff-only", "--quiet")
+	netproxy.ConfigureCmd(cmd, w.proxy)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git pull: %w (%s)", err, strings.TrimSpace(string(out)))

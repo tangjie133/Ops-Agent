@@ -22,6 +22,7 @@ type Config struct {
 	IssueAutomation IssueAutomationConfig `yaml:"issue_automation"`
 	Notify          NotifyConfig          `yaml:"notify"`
 	AI              AIConfig              `yaml:"ai"`
+	Proxy           ProxyConfig           `yaml:"proxy"`
 	CI              CIConfig              `yaml:"ci"`
 }
 
@@ -78,11 +79,13 @@ type AIConfig struct {
 	APIKey       string              `yaml:"api_key"`
 	Investigator InvestigatorConfig  `yaml:"investigator"`
 	RepoContext  RepoContextConfig   `yaml:"repo_context"`
+	RAG          RAGConfig           `yaml:"rag"`
 }
 
 func (c *AIConfig) normalize() {
 	c.Investigator.Normalize()
 	c.RepoContext.Normalize()
+	c.RAG.Normalize()
 }
 
 type CIConfig struct {
@@ -134,6 +137,11 @@ func Default() *Config {
 			RepoContext: RepoContextConfig{
 				Enabled: true,
 			},
+			RAG: RAGConfig{
+				InjectTopK:      4,
+				SearchTopK:      8,
+				DefaultStandard: "arduino-library",
+			},
 		},
 		CI: CIConfig{
 			PRCheckOnEvents: []string{"pull_request"},
@@ -176,6 +184,7 @@ func Load() (*Config, error) {
 	}
 
 	cfg.AI.normalize()
+	cfg.Proxy.Normalize()
 	expandEnv(cfg)
 	return cfg, nil
 }
@@ -208,6 +217,9 @@ func resolveConfigPath() (string, error) {
 func expandEnv(cfg *Config) {
 	cfg.AI.BaseURL = os.ExpandEnv(cfg.AI.BaseURL)
 	cfg.AI.APIKey = os.ExpandEnv(cfg.AI.APIKey)
+	cfg.Proxy.HTTPSProxy = os.ExpandEnv(cfg.Proxy.HTTPSProxy)
+	cfg.Proxy.HTTPProxy = os.ExpandEnv(cfg.Proxy.HTTPProxy)
+	cfg.Proxy.NoProxy = os.ExpandEnv(cfg.Proxy.NoProxy)
 	for name, ch := range cfg.Notify.Channels {
 		ch.WebhookURL = os.ExpandEnv(ch.WebhookURL)
 		cfg.Notify.Channels[name] = ch
@@ -307,6 +319,22 @@ func TodoStorePath() string {
 		return filepath.Join(home, ".local", "share", "ops-agent", "todo.json")
 	}
 	return "todo.json"
+}
+
+// LogFilePath TUI 会话日志（纯文本，可 tail -f 或编辑器打开）。
+func LogFilePath() string {
+	if p := os.Getenv("OPS_AGENT_DATA"); p != "" {
+		return filepath.Join(p, "logs", "tui.log")
+	}
+	if runtime.GOOS == "windows" {
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			return filepath.Join(appData, "ops-agent", "logs", "tui.log")
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".local", "share", "ops-agent", "logs", "tui.log")
+	}
+	return filepath.Join("logs", "tui.log")
 }
 
 // WebhookAddr 返回 webhook 监听地址（listen + path）。

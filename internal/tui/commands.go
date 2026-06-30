@@ -8,6 +8,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/ai"
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
+	"github.com/ZzedJay/Ops-Agent/internal/netproxy"
 	"github.com/ZzedJay/Ops-Agent/internal/prcheck"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
@@ -33,6 +34,8 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, stor
 		return "输入 /mode 后按 Enter 打开模式选择菜单。"
 	case "/model", "/ai":
 		return "输入 /model 后按 Enter 打开模型配置菜单。"
+	case "/proxy", "/vpn", "/网络":
+		return "输入 /proxy 后按 Enter 打开网络代理配置菜单。"
 	case "/webhook":
 		return "输入 /webhook 后按 Enter 打开 Webhook 配置菜单。"
 	case "/check":
@@ -48,6 +51,8 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, stor
 		return "反馈功能占位（M4）。"
 	case "/clean", "/clear":
 		return "" // handled in model: clears output before runCommand
+	case "/logs":
+		return fmt.Sprintf("复制全部日志: Ctrl+Y 或 /logs copy\n日志文件: %s", config.LogFilePath())
 	default:
 		return fmt.Sprintf("未知命令: %s\n输入 /help 查看可用命令。", cmd)
 	}
@@ -58,8 +63,10 @@ func helpText() string {
   /help              显示帮助
   /status            检查 gh 与 llama-server
   /clean             清空输出区域
+  /logs              日志复制说明（Ctrl+Y 复制 · 文件路径）
   /webhook           打开 Webhook 配置菜单（二级菜单，自动保存）
   /model             打开模型配置菜单（base_url / model / api_key）
+  /proxy             打开网络代理菜单（翻墙 / gh clone）
   /mode              打开模式选择菜单（1/2/3 或 j/k + Enter，自动保存）
   /check             检测当前分支 PR（checks + 冲突）
   /issue owner/repo#n  查看 issue 详情（i 键使用待办所属仓库）
@@ -75,7 +82,11 @@ func helpText() string {
   i            查看选中待办 issue 详情
   p            发布 ready 草稿（semi 确认 / manual）
   d            忽略选中待办
-  鼠标滚轮     在输出区滚动历史
+  Ctrl+L       显示/隐藏日志区
+  Ctrl+Y       复制全部日志到剪贴板
+  鼠标滚轮     在对话/日志区滚动
+
+说明: TUI 全屏模式下无法用鼠标拖选；请 Ctrl+Y 复制日志，或 tail 日志文件。
 
 manual 模式聊天处理待办:
   j/k 选中 → 「分析/处理这条」生成草稿 → 「发布」发帖 → 「忽略」移除
@@ -86,6 +97,15 @@ semi/full: Worker 自动分析，ready 后按 p 发布`
 func isOutputClearCommand(line string) bool {
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "/clean", "/clear":
+		return true
+	default:
+		return false
+	}
+}
+
+func isLogsCopyCommand(line string) bool {
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "/logs copy", "/logs cp":
 		return true
 	default:
 		return false
@@ -122,6 +142,14 @@ func cmdStatus(ctx context.Context, gh *github.Client, cfg *config.Config) strin
 		b.WriteString(fmt.Sprintf("llama-server: %s\n", health.Message))
 	} else {
 		b.WriteString(fmt.Sprintf("llama-server: %s\n", health.Message))
+	}
+
+	b.WriteString(fmt.Sprintf("网络代理: %s\n", cfg.Proxy.Summary()))
+	ghHealth := netproxy.CheckGitHubWithGH(ctx, cfg.Proxy)
+	if ghHealth.Reachable {
+		b.WriteString("GitHub 访问: " + ghHealth.Message + "\n")
+	} else {
+		b.WriteString("GitHub 访问: " + ghHealth.Message + "\n")
 	}
 
 	b.WriteString(fmt.Sprintf("\n自动化模式: %s\n", cfg.IssueAutomation.ModeSummary()))

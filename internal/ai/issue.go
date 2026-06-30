@@ -27,13 +27,17 @@ type IssueAnalyzer struct {
 	inv *investigator.Investigator
 }
 
-func NewIssueAnalyzer(cfg config.AIConfig, gh *github.Client) *IssueAnalyzer {
-	client := NewClient(cfg)
-	return &IssueAnalyzer{inv: investigator.New(cfg, gh, llmAdapter{client: client})}
+func NewIssueAnalyzer(aiCfg config.AIConfig, proxy config.ProxyConfig, gh *github.Client) *IssueAnalyzer {
+	client := NewClient(aiCfg)
+	return &IssueAnalyzer{inv: investigator.New(aiCfg, proxy, gh, llmAdapter{client: client})}
 }
 
 func (a *IssueAnalyzer) AnalyzeIssue(ctx context.Context, repo string, num int) (string, error) {
 	return a.inv.AnalyzeIssue(ctx, repo, num)
+}
+
+func (a *IssueAnalyzer) SetLogger(log investigator.Logger) {
+	a.inv.SetLogger(log)
 }
 
 // FormatCommentBody 附加自动回复 footer。

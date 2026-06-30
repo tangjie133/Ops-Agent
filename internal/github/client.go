@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/ZzedJay/Ops-Agent/internal/config"
+	"github.com/ZzedJay/Ops-Agent/internal/netproxy"
 )
 
 type AuthStatus struct {
@@ -74,10 +77,22 @@ type IssueListOpts struct {
 	Limit  int
 }
 
-type Client struct{}
+type Client struct {
+	proxy config.ProxyConfig
+}
 
 func NewClient() *Client {
 	return &Client{}
+}
+
+func NewClientWithProxy(proxy config.ProxyConfig) *Client {
+	proxy.Normalize()
+	return &Client{proxy: proxy}
+}
+
+func (c *Client) SetProxy(proxy config.ProxyConfig) {
+	proxy.Normalize()
+	c.proxy = proxy
 }
 
 func (c *Client) AuthStatus(ctx context.Context) (*AuthStatus, error) {
@@ -290,6 +305,7 @@ func (c *Client) Available() bool {
 
 func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "gh", args...)
+	netproxy.ConfigureCmd(cmd, c.proxy)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return out, fmt.Errorf("gh %s: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))

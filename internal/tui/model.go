@@ -72,6 +72,12 @@ type Model struct {
 	aiEditField int
 	aiInput     textinput.Model
 
+	proxyMenuOpen  bool
+	proxyMenuLevel int
+	proxyMenuSel   int
+	proxyEditField int
+	proxyInput     textinput.Model
+
 	menuNotice       string
 	connInput        textinput.Model
 
@@ -82,6 +88,9 @@ type Model struct {
 	confirmRepo  string
 	confirmNum   int
 	confirmDraft string
+
+	programSend       func(tea.Msg)
+	investigatorLogFn func(string)
 }
 
 func NewModel(cfg *config.Config, store *todo.FileStore, wh *WebhookRuntime) Model {
@@ -93,7 +102,7 @@ func NewModel(cfg *config.Config, store *todo.FileStore, wh *WebhookRuntime) Mod
 
 	m := Model{
 		cfg:            cfg,
-		gh:             github.NewClient(),
+		gh:             github.NewClientWithProxy(cfg.Proxy),
 		store:          store,
 		whRuntime:      wh,
 		input:          ti,
@@ -179,6 +188,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.proxyMenuOpen && m.proxyEditField >= 0 {
+			return m.handleProxyConnEdit(msg)
+		}
+		if m.proxyMenuOpen {
+			if m.handleProxyMenuKey(msg.String()) {
+				return m, textinput.Blink
+			}
+			return m, nil
+		}
 		if m.webhookMenuOpen && m.webhookEditField >= 0 {
 			return m.handleWebhookConnEdit(msg)
 		}
@@ -198,6 +216,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+l":
 			m.toggleLogPanel()
+			return m, nil
+		case "ctrl+y":
+			if n, err := m.copyLogsToClipboard(); err != nil {
+				m.appendOutput("复制日志失败: " + err.Error())
+			} else {
+				m.appendOutput(fmt.Sprintf("已复制 %d 行日志到剪贴板（另存于 %s）", n, config.LogFilePath()))
+			}
 			return m, nil
 		case "ctrl+c":
 			return m, tea.Quit
@@ -250,6 +275,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.clearOutput()
 				return m, nil
 			}
+			if isLogsCopyCommand(line) {
+				if n, err := m.copyLogsToClipboard(); err != nil {
+					m.appendOutput("复制日志失败: " + err.Error())
+				} else {
+					m.appendOutput(fmt.Sprintf("已复制 %d 行日志到剪贴板\n文件: %s", n, config.LogFilePath()))
+				}
+				return m, nil
+			}
 			m.appendOutput("> " + line)
 			if isModeMenuCommand(line) {
 				m.openModeMenu()
@@ -261,6 +294,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if isAIMenuCommand(line) {
 				m.openAIMenu()
+				return m, textinput.Blink
+			}
+			if isProxyMenuCommand(line) {
+				m.openProxyMenu()
 				return m, textinput.Blink
 			}
 			if !strings.HasPrefix(line, "/") {
@@ -300,7 +337,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.appendOutput(strings.Join(wh, " · "))
 		}
-		m.appendOutput("输入 /help 查看命令 · /webhook /mode 配置")
+		m.appendOutput("输入 /help 查看命令 · /webhook /model /proxy 配置")
 		return m, nil
 
 	case webhookStartedMsg:
@@ -310,7 +347,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case WebhookEventMsg:
-		m.appendLog(styleWebhookEvent.Render(msg.Event.Message()))
+		m.appendLogKind(logKindWebhookEvent, msg.Event.Message())
 		switch msg.Event.Kind {
 		case webhook.EventAdded, webhook.EventCommentAdded, webhook.EventClosed, webhook.EventReopened:
 			m.ensureTodoSelection()
@@ -331,7 +368,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case LogLineMsg:
 		if msg.Line != "" {
-			m.appendLog(styleWebhookLog.Render(msg.Line))
+			m.appendLogKind(logKindWebhook, msg.Line)
+		}
+		return m, nil
+
+	case InvestigatorLogMsg:
+		if msg.Line != "" {
+			m.appendLogKind(logKindInvestigator, msg.Line)
 		}
 		return m, nil
 
@@ -355,7 +398,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	if m.modeMenuOpen || m.webhookMenuOpen || m.aiMenuOpen || m.confirmOpen {
+	if m.modeMenuOpen || m.webhookMenuOpen || m.aiMenuOpen || m.proxyMenuOpen || m.confirmOpen {
 		return m, nil
 	}
 	prev := m.input.Value()
@@ -560,6 +603,13 @@ func (m *Model) renderFooter() string {
 		return b.String()
 	}
 
+	if m.proxyMenuOpen {
+		b.WriteString(m.renderProxyMenu())
+		b.WriteString(m.renderProxyConnEditBar())
+		b.WriteString("\n")
+		return b.String()
+	}
+
 	if m.modeMenuOpen {
 		b.WriteString(m.renderModeMenu())
 		b.WriteString("\n")
@@ -584,7 +634,7 @@ func (m *Model) renderFooter() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(styleHelp.Render("Tab/→ 补全 · j/k 待办 · p 发布 · Ctrl+L 日志 · /model /webhook /mode"))
+	b.WriteString(styleHelp.Render("Tab/→ 补全 · j/k 待办 · p 发布 · Ctrl+L 日志 · Ctrl+Y 复制日志"))
 	return b.String()
 }
 
