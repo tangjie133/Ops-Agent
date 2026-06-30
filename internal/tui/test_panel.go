@@ -66,6 +66,7 @@ func (m *Model) testUp() {
 		return
 	}
 	m.testSel--
+	m.markDirty()
 }
 
 func (m *Model) testDown() {
@@ -83,6 +84,7 @@ func (m *Model) testDown() {
 		return
 	}
 	m.testSel++
+	m.markDirty()
 }
 
 func formatTestEntry(it libtest.Item, width int, selected bool, spinnerFrame int) []string {

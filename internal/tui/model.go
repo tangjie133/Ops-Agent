@@ -290,11 +290,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "[":
 			if m.input.Value() == "" {
 				m.leftFocus = focusTodo
+				m.markDirty()
 				return m, nil
 			}
 		case "]":
 			if m.input.Value() == "" {
 				m.leftFocus = focusTest
+				m.markDirty()
 				return m, nil
 			}
 		case "d":
