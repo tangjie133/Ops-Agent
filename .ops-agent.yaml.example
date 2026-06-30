@@ -15,14 +15,15 @@ webhook:
   listen: "127.0.0.1:8765"       # 本机 host:port，内嵌 smee 转发目标
   path: "/webhooks/github"         # 与 listen 组成完整本地 URL
   secret: ""                       # 与 GitHub Webhook Secret 一致；留空=本地调试跳过校验
-    public_url: "https://smee.io/YOUR-CHANNEL-ID"  # GitHub Payload URL（不要加 /webhook）
+  public_url: "https://smee.io/YOUR-CHANNEL-ID"  # GitHub Payload URL（不要加 /webhook）
   tunnel:
     smee:
       enabled: true                # 内嵌 smee 客户端，无需单独运行 smee-client
 
 # 接入步骤:
 #   1. https://smee.io 生成频道 → 填入 public_url
-#   2. GitHub Webhooks → Payload URL = public_url，勾选 Issues
+#   2. GitHub Organization Webhooks → Payload URL = public_url
+#      Events: Issues + Issue comments + Pull requests（多仓库一次配置）
 #   3. make run（或 ./ops-agent）
 
 issue_automation:

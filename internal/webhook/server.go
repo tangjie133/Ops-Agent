@@ -24,7 +24,7 @@ func NewServer(cfg *config.Config, store *todo.FileStore, onEvent OnEvent, logge
 		logger = log.Default()
 	}
 	mux := http.NewServeMux()
-	handler := NewHandler(cfg, store, onEvent)
+	handler := NewHandler(cfg, store, onEvent, logger)
 	path := normalizePath(cfg.Webhook.Path)
 	mux.Handle(path, handler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -72,10 +72,10 @@ func (s *Server) Start() error {
 	s.ln = ln
 	s.http.Addr = ln.Addr().String()
 
-	s.logger.Printf("webhook: listening on http://%s%s", ln.Addr().String(), normalizePath(s.cfg.Webhook.Path))
+		s.logger.Printf("webhook · 监听 http://%s%s", ln.Addr().String(), normalizePath(s.cfg.Webhook.Path))
 	go func() {
 		if err := s.http.Serve(ln); err != nil && err != http.ErrServerClosed {
-			s.logger.Printf("webhook: server error: %v", err)
+			s.logger.Printf("webhook · 服务异常: %v", err)
 		}
 	}()
 	return nil

@@ -61,7 +61,7 @@ func (c *Client) run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		c.logger.Printf("smee: disconnected: %v; retry in %s", err, backoff)
+		c.logger.Printf("smee · 断开: %v（%s 后重连）", err, backoff)
 		select {
 		case <-ctx.Done():
 			return
@@ -91,7 +91,7 @@ func (c *Client) streamOnce(ctx context.Context) error {
 		return fmt.Errorf("smee connect %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
-	c.logger.Printf("smee: connected %s → %s", c.channelURL, c.targetURL)
+		c.logger.Printf("smee · 已连接 %s → %s", c.channelURL, c.targetURL)
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
@@ -113,7 +113,7 @@ func (c *Client) streamOnce(ctx context.Context) error {
 			return nil
 		}
 		if err := c.forward(raw); err != nil {
-			c.logger.Printf("smee: forward: %v", err)
+			c.logger.Printf("smee · 转发失败: %v", err)
 		}
 		return nil
 	}

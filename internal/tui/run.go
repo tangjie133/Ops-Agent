@@ -26,16 +26,15 @@ func Run(cfg *config.Config) error {
 
 	runtime := NewWebhookRuntime(cfg, store, func(evt webhook.Event) {
 		p.Send(WebhookEventMsg{Event: evt})
+	}, func(msg LogLineMsg) {
+		p.Send(msg)
 	})
 	m.whRuntime = runtime
 
-	if err := runtime.Start(); err != nil {
-		return fmt.Errorf("webhook: %w", err)
-	}
-	defer runtime.Shutdown()
-
 	if _, err := p.Run(); err != nil {
+		runtime.Shutdown()
 		return fmt.Errorf("tui: %w", err)
 	}
+	runtime.Shutdown()
 	return nil
 }

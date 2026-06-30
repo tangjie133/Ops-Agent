@@ -30,6 +30,10 @@ type commandDoneMsg struct {
 	output string
 }
 
+type webhookStartedMsg struct {
+	err error
+}
+
 type Model struct {
 	cfg            *config.Config
 	gh             *github.Client
@@ -88,6 +92,7 @@ func (m *Model) Init() tea.Cmd {
 	return tea.Batch(
 		textinput.Blink,
 		m.runStartup(),
+		m.startWebhookCmd(),
 	)
 }
 
@@ -124,6 +129,15 @@ func (m Model) runStartup() tea.Cmd {
 		}
 
 		return msg
+	}
+}
+
+func (m *Model) startWebhookCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.whRuntime == nil {
+			return webhookStartedMsg{}
+		}
+		return webhookStartedMsg{err: m.whRuntime.Start()}
 	}
 }
 
@@ -235,11 +249,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendOutput("输入 /help 查看命令 · /webhook /mode 配置")
 		return m, nil
 
+	case webhookStartedMsg:
+		if msg.err != nil {
+			m.appendOutput(styleStatusErr.Render("✗ Webhook 启动失败: " + msg.err.Error()))
+		}
+		return m, nil
+
 	case WebhookEventMsg:
-		m.appendOutput(msg.Event.Message())
+		m.appendOutput(styleWebhookEvent.Render(msg.Event.Message()))
 		switch msg.Event.Kind {
 		case webhook.EventAdded, webhook.EventCommentAdded, webhook.EventClosed, webhook.EventReopened:
 			m.ensureTodoSelection()
+		}
+		return m, nil
+
+	case LogLineMsg:
+		if msg.Line != "" {
+			m.appendOutput(styleWebhookLog.Render(msg.Line))
 		}
 		return m, nil
 
@@ -456,7 +482,7 @@ func (m *Model) renderFooter() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(styleHelp.Render("Tab/→ 补全 · j/k 待办 · /webhook /mode 配置菜单"))
+	b.WriteString(styleHelp.Render("Tab/→ 补全 · j/k 待办 · 滚轮浏览输出 · /webhook /mode"))
 	return b.String()
 }
 
@@ -495,10 +521,7 @@ func (m *Model) View() string {
 func (m *Model) renderStatusBar() string {
 	mode := m.cfg.IssueAutomation.ModeLabel()
 	model := m.cfg.AI.Model
-	repo := m.repo
-	if repo == "" {
-		repo = "—"
-	}
+	watch := m.todoWatchSummary()
 
 	wh := "wh:off"
 	if m.cfg.Webhook.Enabled {
@@ -510,7 +533,7 @@ func (m *Model) renderStatusBar() string {
 		cwd = "…" + cwd[len(cwd)-33:]
 	}
 
-	line := fmt.Sprintf("%s · %s · %s · %s · 待办 %d", model, mode, wh, repo, m.store.ActiveCount())
+	line := fmt.Sprintf("%s · %s · %s · %s · 待办 %d", model, mode, wh, watch, m.store.ActiveCount())
 	if m.width > 0 {
 		pad := m.width - lipgloss.Width(line) - lipgloss.Width(cwd) - 2
 		if pad > 0 {

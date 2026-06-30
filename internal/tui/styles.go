@@ -52,6 +52,12 @@ var (
 	styleCompleteHint = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#6B7280"))
 
+	styleWebhookLog = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#9CA3AF"))
+
+	styleWebhookEvent = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#A5B4FC"))
+
 	styleHelp = lipgloss.NewStyle().
 			Foreground(colorMuted)
 

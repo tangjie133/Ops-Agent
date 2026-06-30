@@ -2,6 +2,8 @@
 
 面向 GitHub 工作流的运维 TUI：通过终端交互界面处理 Issue、PR 提交与检测，并由本地 AI（Qwen + llama.cpp）以自然语言驱动 Agent。
 
+**快速上手（安装、Webhook、快捷键、交接清单）见 [docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md)。**
+
 > 本文档为需求与设计说明（草案），供评审讨论；实现进度以代码为准。
 
 ---

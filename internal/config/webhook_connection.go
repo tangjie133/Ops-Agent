@@ -98,7 +98,7 @@ func WebhookConnFields() []WebhookConnField {
 
 // WebhookConnectionIntro 连接配置总览。
 func WebhookConnectionIntro() string {
-	return "流程: GitHub → Payload URL(smee.io) → 内嵌 Smee 隧道 → 本机 listen+path"
+	return "流程: GitHub(Organization/仓库 Webhook) → Payload URL(smee.io) → 内嵌 Smee → 本机 listen+path；按 payload 跨仓库同步"
 }
 
 // ConnectionSummary 连接配置一行摘要。

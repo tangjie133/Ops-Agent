@@ -138,3 +138,24 @@ func statusSymbol(st todo.Status) string {
 		return "○"
 	}
 }
+
+// todoWatchSummary 汇总待办涉及的仓库数（Webhook 按 payload 跨库，非 cwd 单库）。
+func (m *Model) todoWatchSummary() string {
+	repos := make(map[string]struct{})
+	for _, it := range m.activeTodos() {
+		if it.Repo != "" {
+			repos[it.Repo] = struct{}{}
+		}
+	}
+	switch len(repos) {
+	case 0:
+		return "0 仓库"
+	case 1:
+		for r := range repos {
+			return r
+		}
+	default:
+		return fmt.Sprintf("%d 仓库", len(repos))
+	}
+	return "—"
+}

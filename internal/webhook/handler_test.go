@@ -30,7 +30,7 @@ func TestIssueOpenedEnqueue(t *testing.T) {
 
 	store, _ := todo.Load(t.TempDir() + "/todo.json")
 	var got Event
-	h := NewHandler(cfg, store, func(evt Event) { got = evt })
+	h := NewHandler(cfg, store, func(evt Event) { got = evt }, nil)
 
 	body := []byte(`{
 		"action":"opened",
@@ -62,7 +62,7 @@ func TestIssueOpenedSkippedWhenAssigned(t *testing.T) {
 
 	store, _ := todo.Load(t.TempDir() + "/todo.json")
 	var got Event
-	h := NewHandler(cfg, store, func(evt Event) { got = evt })
+	h := NewHandler(cfg, store, func(evt Event) { got = evt }, nil)
 
 	body := []byte(`{
 		"action":"opened",
@@ -92,7 +92,7 @@ func TestIssueCommentEnqueuesOldIssue(t *testing.T) {
 	store, _ := todo.Load(t.TempDir() + "/todo.json")
 
 	var got Event
-	h := NewHandler(cfg, store, func(evt Event) { got = evt })
+	h := NewHandler(cfg, store, func(evt Event) { got = evt }, nil)
 
 	body := []byte(`{
 		"action":"created",
@@ -118,7 +118,7 @@ func TestIssueClosedRemovesTodo(t *testing.T) {
 	_ = store.Upsert(todo.Item{Repo: "o/r", Number: 7, Title: "active", Status: todo.StatusInTodo})
 
 	var got Event
-	h := NewHandler(cfg, store, func(evt Event) { got = evt })
+	h := NewHandler(cfg, store, func(evt Event) { got = evt }, nil)
 
 	body := []byte(`{
 		"action":"closed",
@@ -142,12 +142,42 @@ func TestIssueClosedRemovesTodo(t *testing.T) {
 	}
 }
 
+func TestPullRequestClosedRemovesTodo(t *testing.T) {
+	cfg := config.Default()
+	store, _ := todo.Load(t.TempDir() + "/todo.json")
+	_ = store.Upsert(todo.Item{Repo: "o/r", Number: 12, Title: "pr item", Status: todo.StatusInTodo})
+
+	var got Event
+	h := NewHandler(cfg, store, func(evt Event) { got = evt }, nil)
+
+	body := []byte(`{
+		"action":"closed",
+		"pull_request":{"number":12,"title":"pr item","state":"closed"},
+		"repository":{"full_name":"o/r"}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	if got.Kind != EventClosed {
+		t.Fatalf("event: %+v", got)
+	}
+	it, ok := store.Get("o/r", 12)
+	if !ok || it.Status != todo.StatusDone {
+		t.Fatalf("item=%+v ok=%v", it, ok)
+	}
+}
+
 func TestPing(t *testing.T) {
 	cfg := config.Default()
 	cfg.Webhook.Secret = "s"
 	store, _ := todo.Load(t.TempDir() + "/todo.json")
 	var got Event
-	h := NewHandler(cfg, store, func(evt Event) { got = evt })
+	h := NewHandler(cfg, store, func(evt Event) { got = evt }, nil)
 
 	body := []byte(`{"zen":"test"}`)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))

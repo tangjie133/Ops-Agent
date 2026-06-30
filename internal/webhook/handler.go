@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/issuewatch"
@@ -12,18 +13,22 @@ import (
 )
 
 type Handler struct {
-	cfg     *config.Config
-	store   *todo.FileStore
-	onEvent OnEvent
-	logger  *log.Logger
+	cfg            *config.Config
+	store          *todo.FileStore
+	onEvent        OnEvent
+	logger         *log.Logger
+	secretWarnOnce sync.Once
 }
 
-func NewHandler(cfg *config.Config, store *todo.FileStore, onEvent OnEvent) *Handler {
+func NewHandler(cfg *config.Config, store *todo.FileStore, onEvent OnEvent, logger *log.Logger) *Handler {
+	if logger == nil {
+		logger = log.New(io.Discard, "", 0)
+	}
 	return &Handler{
 		cfg:     cfg,
 		store:   store,
 		onEvent: onEvent,
-		logger:  log.Default(),
+		logger:  logger,
 	}
 }
 
@@ -47,18 +52,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if h.cfg.Webhook.Secret != "" {
 		if err := verifySignature(h.cfg.Webhook.Secret, body, r.Header.Get("X-Hub-Signature-256")); err != nil {
-			h.logger.Printf("webhook: signature: %v", err)
+			h.logger.Printf("webhook · 签名校验失败: %v", err)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 	} else {
-		h.logger.Printf("webhook: warning — secret not set, skipping signature verify")
+		h.secretWarnOnce.Do(func() {
+			h.logger.Printf("webhook · 未设置 secret，跳过签名校验（本地调试）")
+		})
 	}
 
 	event := r.Header.Get("X-GitHub-Event")
 	switch event {
 	case "issues":
 		h.handleIssues(w, body)
+	case "pull_request":
+		h.handlePullRequest(w, body)
 	case "issue_comment":
 		h.handleIssueComment(w, body)
 	case "ping":
@@ -121,13 +130,12 @@ func (h *Handler) handleIssueOpened(w http.ResponseWriter, repo string, evt Issu
 	ghIssue := evt.Issue.ToGitHubIssue()
 	res, err := issuewatch.Enqueue(h.cfg, h.store, repo, ghIssue)
 	if err != nil {
-		h.logger.Printf("webhook: enqueue %s#%d: %v", repo, number, err)
+		h.logger.Printf("webhook · 入队失败 %s#%d: %v", repo, number, err)
 		http.Error(w, "enqueue failed", http.StatusInternalServerError)
 		return
 	}
 
 	if res.Added {
-		h.logger.Printf("webhook: enqueued %s#%d %q", repo, res.Item.Number, res.Item.Title)
 		h.emit(Event{
 			Kind:   EventAdded,
 			Repo:   repo,
@@ -151,12 +159,11 @@ func (h *Handler) handleIssueOpened(w http.ResponseWriter, repo string, evt Issu
 func (h *Handler) handleIssueClosed(w http.ResponseWriter, repo string, number int, title string) {
 	res, err := issuewatch.RemoveClosed(h.store, repo, number)
 	if err != nil {
-		h.logger.Printf("webhook: close sync %s#%d: %v", repo, number, err)
+		h.logger.Printf("webhook · 关闭同步失败 %s#%d: %v", repo, number, err)
 		http.Error(w, "sync failed", http.StatusInternalServerError)
 		return
 	}
 	if res.Removed {
-		h.logger.Printf("webhook: removed %s#%d from todo (github closed)", repo, number)
 		h.emit(Event{Kind: EventClosed, Repo: repo, Number: number, Title: title})
 		writeJSON(w, map[string]any{"ok": true, "removed": true, "repo": repo, "number": number})
 		return
@@ -177,12 +184,11 @@ func (h *Handler) handleIssueReopened(w http.ResponseWriter, repo string, evt Is
 	ghIssue := evt.Issue.ToGitHubIssue()
 	res, err := issuewatch.Reopen(h.cfg, h.store, repo, ghIssue)
 	if err != nil {
-		h.logger.Printf("webhook: reopen %s#%d: %v", repo, number, err)
+		h.logger.Printf("webhook · 重开失败 %s#%d: %v", repo, number, err)
 		http.Error(w, "reopen failed", http.StatusInternalServerError)
 		return
 	}
 	if res.Added {
-		h.logger.Printf("webhook: reopened %s#%d %q", repo, res.Item.Number, res.Item.Title)
 		h.emit(Event{
 			Kind:   EventReopened,
 			Repo:   repo,
@@ -200,6 +206,32 @@ func (h *Handler) handleIssueReopened(w http.ResponseWriter, repo string, evt Is
 		Reason: res.Reason,
 	})
 	writeJSON(w, map[string]any{"ok": true, "added": false, "reason": res.Reason})
+}
+
+func (h *Handler) handlePullRequest(w http.ResponseWriter, body []byte) {
+	var evt PullRequestEvent
+	if err := json.Unmarshal(body, &evt); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+
+	repo := evt.Repository.FullName
+	number := evt.PullRequest.Number
+	title := evt.PullRequest.Title
+
+	switch evt.Action {
+	case "closed":
+		h.handleIssueClosed(w, repo, number, title)
+	default:
+		h.emit(Event{
+			Kind:   EventSkipped,
+			Repo:   repo,
+			Number: number,
+			Title:  title,
+			Reason: "action=" + evt.Action,
+		})
+		writeJSON(w, map[string]any{"ok": true, "skipped": evt.Action})
+	}
 }
 
 func (h *Handler) handleIssueComment(w http.ResponseWriter, body []byte) {
@@ -240,18 +272,13 @@ func (h *Handler) handleIssueComment(w http.ResponseWriter, body []byte) {
 	ghIssue := evt.Issue.ToGitHubIssue()
 	res, err := issuewatch.EnqueueOnComment(h.cfg, h.store, repo, ghIssue)
 	if err != nil {
-		h.logger.Printf("webhook: comment enqueue %s#%d: %v", repo, number, err)
+		h.logger.Printf("webhook · 评论入队失败 %s#%d: %v", repo, number, err)
 		http.Error(w, "enqueue failed", http.StatusInternalServerError)
 		return
 	}
 
 	if res.Added {
 		kind := EventCommentAdded
-		logLabel := "issue"
-		if evt.Issue.IsPullRequest() {
-			logLabel = "pr"
-		}
-		h.logger.Printf("webhook: comment enqueued %s %s#%d %q", logLabel, repo, res.Item.Number, res.Item.Title)
 		h.emit(Event{
 			Kind:   kind,
 			Repo:   repo,

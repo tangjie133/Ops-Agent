@@ -40,6 +40,18 @@ type Repository struct {
 	FullName string `json:"full_name"`
 }
 
+type PullRequestEvent struct {
+	Action     string       `json:"action"`
+	PullRequest PullRequestPayload `json:"pull_request"`
+	Repository Repository   `json:"repository"`
+}
+
+type PullRequestPayload struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	State  string `json:"state"`
+}
+
 func (i Issue) IsPullRequest() bool {
 	return i.PullRequest != nil
 }

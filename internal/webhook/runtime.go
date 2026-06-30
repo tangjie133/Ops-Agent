@@ -136,7 +136,7 @@ func (r *Runtime) startSmeeLocked() {
 	target := r.cfg.Webhook.LocalURL()
 	r.smee = smee.NewClient(channel, target, r.logger)
 	r.smee.Start(context.Background())
-	r.logger.Printf("smee: forwarding %s → %s", channel, target)
+	r.logger.Printf("smee · 转发 %s → %s", channel, target)
 }
 
 func (r *Runtime) stopSmeeLocked() {
