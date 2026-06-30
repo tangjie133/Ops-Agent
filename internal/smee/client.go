@@ -17,7 +17,8 @@ import (
 type Client struct {
 	channelURL string
 	targetURL  string
-	httpClient *http.Client
+	streamClient  *http.Client
+	forwardClient *http.Client
 	logger     *log.Logger
 
 	cancel context.CancelFunc
@@ -30,8 +31,10 @@ func NewClient(channelURL, targetURL string, logger *log.Logger) *Client {
 	return &Client{
 		channelURL: strings.TrimSpace(channelURL),
 		targetURL:  strings.TrimSpace(targetURL),
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		logger:     logger,
+		// SSE 长连接不能用整体 Timeout，否则约 30s 就断线重连。
+		streamClient:  &http.Client{},
+		forwardClient: &http.Client{Timeout: 30 * time.Second},
+		logger:        logger,
 	}
 }
 
@@ -81,7 +84,7 @@ func (c *Client) streamOnce(ctx context.Context) error {
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.streamClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -171,7 +174,7 @@ func (c *Client) forward(raw string) error {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.forwardClient.Do(req)
 	if err != nil {
 		return err
 	}

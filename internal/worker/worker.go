@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -75,6 +76,9 @@ func (w *Worker) Process(ctx context.Context) (*Result, error) {
 		}
 		res, err := w.processItem(ctx, item)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return res, err
+			}
 			_ = w.store.Transition(item.Repo, item.Number, todo.StatusFailed)
 			return res, err
 		}
@@ -109,6 +113,9 @@ func (w *Worker) processItem(ctx context.Context, item todo.Item) (*Result, erro
 	if err != nil {
 		res.Failed = true
 		res.ErrMsg = err.Error()
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			_ = w.store.Transition(item.Repo, item.Number, todo.StatusInTodo)
+		}
 		return res, err
 	}
 

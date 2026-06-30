@@ -39,6 +39,39 @@ func TestFileStoreUpsertAndTransition(t *testing.T) {
 	}
 }
 
+func TestFileStoreReload(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "todo.json")
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Upsert(Item{Repo: "o/r", Number: 2, Title: "a", Status: StatusInTodo}); err != nil {
+		t.Fatal(err)
+	}
+
+	s2, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s2.Get("o/r", 2); !ok {
+		t.Fatal("expected item after reload")
+	}
+	if err := s2.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(path)
+	if err := s2.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if s2.ActiveCount() != 0 {
+		t.Fatalf("expected empty after missing file, got %d", s2.ActiveCount())
+	}
+}
+
 func TestFileStoreShouldEnqueue(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "todo.json")
 	s, _ := Load(path)

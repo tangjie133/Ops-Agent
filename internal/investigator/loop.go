@@ -37,6 +37,9 @@ func (l *Loop) Run(ctx context.Context, issuePrompt string) (string, error) {
 	logf(l.log, "Investigator Agent 循环开始 (max_steps=%d)", l.cfg.MaxSteps)
 
 	for step := 1; step <= l.cfg.MaxSteps; step++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		raw, err := l.client.ChatMessages(ctx, msgs)
 		if err != nil {
 			logf(l.log, "Investigator [%d/%d] LLM 失败: %v", step, l.cfg.MaxSteps, err)

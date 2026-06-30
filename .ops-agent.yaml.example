@@ -23,7 +23,7 @@ webhook:
 # 接入步骤:
 #   1. https://smee.io 生成频道 → 填入 public_url
 #   2. GitHub Organization Webhooks → Payload URL = public_url
-#      Events: Issues + Issue comments + Pull requests（多仓库一次配置）
+#      Events: Issues + Issue comments + Pull requests + Pushes + Releases（验收）
 #   3. make run（或 ./ops-agent）
 
 issue_automation:
@@ -93,6 +93,19 @@ proxy:
   https_proxy: http://127.0.0.1:7890
   http_proxy: ""
   no_proxy: "127.0.0.1,localhost"
+
+lib_test:
+  enabled: true
+  standard: arduino-library
+  min_demos: 1
+  demo_dir: examples
+  auto_run: true
+  # auto_run: false   # 手动模式：仅入队，选中后 Enter 验收（/accept 可切换）
+  on_push: true
+  on_release: true
+  on_repo_created: false
+  max_queue_items: 30
+  # workspace_dir: ""  # 默认 ~/.local/share/ops-agent/lib-test/workspaces
 
 ci:
   pr_check_on_events:

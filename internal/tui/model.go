@@ -3,22 +3,23 @@ package tui
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
+	"github.com/charmbracelet/bubbles/cursor"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ZzedJay/Ops-Agent/internal/ai"
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
+	"github.com/ZzedJay/Ops-Agent/internal/libtest"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
-	"github.com/ZzedJay/Ops-Agent/internal/webhook"
 )
 
-type spinnerTickMsg struct{}
+type spinnerTickMsg struct{} // deprecated: spinner 由 refresh tick 驱动
 
 type startupDoneMsg struct {
 	ghOK   bool
@@ -40,6 +41,7 @@ type Model struct {
 	cfg            *config.Config
 	gh             *github.Client
 	store          *todo.FileStore
+	libTestStore   *libtest.FileStore
 	whRuntime      *WebhookRuntime
 	input          textinput.Model
 	outputViewport viewport.Model
@@ -55,11 +57,17 @@ type Model struct {
 	repo   string
 
 	todoSel int
+	testSel int
+	leftFocus leftPanelFocus
 	spinnerFrame int
+	spinnerActive bool
 	ready   bool
 
 	modeMenuOpen bool
 	modeMenuSel  int
+
+	acceptMenuOpen bool
+	acceptMenuSel  int
 
 	webhookMenuOpen  bool
 	webhookMenuLevel int
@@ -89,21 +97,32 @@ type Model struct {
 	confirmNum   int
 	confirmDraft string
 
-	programSend       func(tea.Msg)
+	invLogSink *investigatorLogSink
+	invStatus  string
+
+	workerBusy  bool
+	libTestBusy bool
+
+	runCtx context.Context
+
 	investigatorLogFn func(string)
+
+	viewCache viewCacheState
 }
 
-func NewModel(cfg *config.Config, store *todo.FileStore, wh *WebhookRuntime) Model {
+func NewModel(cfg *config.Config, store *todo.FileStore, libTestStore *libtest.FileStore, wh *WebhookRuntime) Model {
 	ti := textinput.New()
 	ti.Placeholder = "ask a question, or describe a task  (/help)"
 	ti.Focus()
 	ti.CharLimit = 2048
 	ti.Width = 60
+	_ = ti.Cursor.SetMode(cursor.CursorStatic)
 
 	m := Model{
 		cfg:            cfg,
 		gh:             github.NewClientWithProxy(cfg.Proxy),
 		store:          store,
+		libTestStore:   libTestStore,
 		whRuntime:      wh,
 		input:          ti,
 		outputViewport: viewport.New(60, 8),
@@ -111,18 +130,31 @@ func NewModel(cfg *config.Config, store *todo.FileStore, wh *WebhookRuntime) Mod
 	}
 	m.syncOutputViewport(true)
 	m.ensureTodoSelection()
+	m.ensureTestSelection()
 	return m
 }
 
+func (m *Model) bgCtx() context.Context {
+	if m.runCtx != nil {
+		return m.runCtx
+	}
+	return context.Background()
+}
+
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(
-		textinput.Blink,
+	cmds := []tea.Cmd{
 		m.runStartup(),
 		m.startWebhookCmd(),
+		m.refreshTickCmd(),
 		m.workerTickCmd(),
-		m.runWorkerCmd(),
-		m.spinnerTickCmd(),
-	)
+	}
+	if m.cfg != nil && m.cfg.LibTest.Enabled {
+		cmds = append(cmds, m.libTestTickCmd())
+	}
+	if diagEnabled() {
+		cmds = append(cmds, m.diagTickCmd())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m Model) runStartup() tea.Cmd {
@@ -171,6 +203,10 @@ func (m *Model) startWebhookCmd() tea.Cmd {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	start := time.Now()
+	msgType := diagMsgType(msg)
+	defer func() { recordUpdate(msgType, time.Since(start)) }()
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.confirmOpen {
@@ -212,6 +248,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.acceptMenuOpen {
+			if m.handleAcceptMenuKey(msg.String()) {
+				return m, textinput.Blink
+			}
+			return m, nil
+		}
 
 		switch msg.String() {
 		case "ctrl+l":
@@ -234,25 +276,52 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "j":
 			if m.input.Value() == "" {
-				m.todoDown()
+				if m.leftFocus == focusTest {
+					m.testDown()
+				} else {
+					m.todoDown()
+				}
 				return m, nil
 			}
 		case "k":
 			if m.input.Value() == "" {
-				m.todoUp()
+				if m.leftFocus == focusTest {
+					m.testUp()
+				} else {
+					m.todoUp()
+				}
+				return m, nil
+			}
+		case "[":
+			if m.input.Value() == "" {
+				m.leftFocus = focusTodo
+				return m, nil
+			}
+		case "]":
+			if m.input.Value() == "" {
+				m.leftFocus = focusTest
 				return m, nil
 			}
 		case "d":
 			if m.input.Value() == "" {
-				m.dismissSelectedTodo()
+				if m.leftFocus == focusTest {
+					m.dismissSelectedTest()
+				} else {
+					m.dismissSelectedTodo()
+				}
 				return m, nil
 			}
 		case "i":
-			if m.input.Value() == "" {
+			if m.input.Value() == "" && m.leftFocus == focusTodo {
 				return m, m.focusSelectedTodo()
 			}
+		case "v":
+			if m.input.Value() == "" && m.leftFocus == focusTest {
+				m.showSelectedTestReport()
+				return m, nil
+			}
 		case "p":
-			if m.input.Value() == "" {
+			if m.input.Value() == "" && m.leftFocus == focusTodo {
 				m.openConfirmMenu()
 				return m, nil
 			}
@@ -265,6 +334,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "enter":
+			if m.input.Value() == "" {
+				if m.leftFocus == focusTest {
+					return m, m.runSelectedLibTest()
+				}
+				return m, nil
+			}
 			line := strings.TrimSpace(m.input.Value())
 			if line == "" {
 				return m, nil
@@ -300,6 +375,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.openProxyMenu()
 				return m, textinput.Blink
 			}
+			if isAcceptMenuCommand(line) {
+				m.openAcceptMenu()
+				return m, textinput.Blink
+			}
 			if !strings.HasPrefix(line, "/") {
 				return m, m.runAgentChat(line)
 			}
@@ -313,6 +392,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aiWarn = msg.aiWarn
 		m.repo = msg.repo
 		m.ready = true
+		m.markDirty()
 
 		var lines []string
 		if !m.ghOK {
@@ -337,7 +417,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.appendOutput(strings.Join(wh, " · "))
 		}
-		m.appendOutput("输入 /help 查看命令 · /webhook /model /proxy 配置")
+		m.appendOutput("输入 /help 查看命令 · /webhook /accept /model /proxy 配置")
+		m.appendOutput("强制退出: 连按两次 Ctrl+C，或另开终端 make kill")
+		m.appendOutput("UI 轮询 store/日志（500ms）；Webhook 不推送 TUI，详见 tui.log")
+		if diagEnabled() {
+			m.appendOutput("诊断日志: " + config.DiagLogFilePath() + "（卡顿时 tail -f）")
+		}
 		return m, nil
 
 	case webhookStartedMsg:
@@ -346,73 +431,90 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case WebhookEventMsg:
-		m.appendLogKind(logKindWebhookEvent, msg.Event.Message())
-		switch msg.Event.Kind {
-		case webhook.EventAdded, webhook.EventCommentAdded, webhook.EventClosed, webhook.EventReopened:
-			m.ensureTodoSelection()
-		}
-		return m, m.triggerWorkerIfNeeded()
+	case refreshTickMsg:
+		return m, m.handleRefreshTick()
 
 	case workerTickMsg:
-		return m, m.runWorkerCmd()
+		cmds := []tea.Cmd{m.workerTickCmd()}
+		if !m.workerBusy && m.cfg.IssueAutomation.Mode != config.ModeManual && m.aiOK && m.cfg.IssueAutomation.AutoAnalyze {
+			cmds = append(cmds, m.runWorkerCmd())
+		}
+		return m, tea.Batch(cmds...)
+
+	case libTestTickMsg:
+		return m, m.handleLibTestTick()
+
+	case diagTickMsg:
+		return m, m.handleDiagTick()
+
+	case libTestDoneMsg:
+		return m, m.handleLibTestDone(msg)
 
 	case workerDoneMsg:
-		return m, m.handleWorkerDone(msg)
-
-	case spinnerTickMsg:
-		if m.hasAnalyzingTodo() {
-			m.spinnerFrame++
-		}
-		return m, m.spinnerTickCmd()
+		cmd := m.handleWorkerDone(msg)
+		m.clearInvStatus()
+		return m, cmd
 
 	case LogLineMsg:
 		if msg.Line != "" {
-			m.appendLogKind(logKindWebhook, msg.Line)
+			bgLog.append(logKindWebhook, msg.Line)
 		}
 		return m, nil
 
-	case InvestigatorLogMsg:
-		if msg.Line != "" {
-			m.appendLogKind(logKindInvestigator, msg.Line)
-		}
+	case invStatusMsg:
 		return m, nil
 
 	case commandDoneMsg:
 		if msg.output != "" {
-			m.appendOutput(msg.output)
+			m.appendOutput(truncateForDisplay(msg.output, 12000))
 		}
 		m.ensureTodoSelection()
+		m.markDirty()
 		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.layout()
+		m.invalidateViewCache()
 		return m, nil
 
 	case tea.MouseMsg:
-		if m.handleMouseScroll(msg) {
+		// 仅处理滚轮；忽略 motion/click，避免 cell motion 模式下的消息洪峰。
+		if !tea.MouseEvent(msg).IsWheel() {
 			return m, nil
 		}
+		if m.handleMouseScroll(msg) {
+			m.markDirty()
+			return m, nil
+		}
+		return m, nil
 	}
 
-	var cmd tea.Cmd
-	if m.modeMenuOpen || m.webhookMenuOpen || m.aiMenuOpen || m.proxyMenuOpen || m.confirmOpen {
+	// 仅键盘输入交给 textinput；其它内部消息（BlinkMsg 等）若传入 Update
+	// 会触发无意义的 View 重绘，长时间运行后会造成事件洪峰。
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	if m.modeMenuOpen || m.webhookMenuOpen || m.aiMenuOpen || m.proxyMenuOpen || m.confirmOpen || m.acceptMenuOpen {
 		return m, nil
 	}
 	prev := m.input.Value()
-	m.input, cmd = m.input.Update(msg)
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(key)
 	if m.input.Value() != prev {
 		m.resetCompletions()
 	}
 	m.refreshCompletions()
+	m.markDirty()
 	return m, cmd
 }
 
 func (m *Model) runCommand(line string) tea.Cmd {
+	ctx := m.bgCtx()
 	return func() tea.Msg {
-		out := runCommand(context.Background(), m.cfg, m.gh, m.store, line)
+		out := runCommand(ctx, m.cfg, m.gh, m.store, line)
 		return commandDoneMsg{output: out}
 	}
 }
@@ -420,6 +522,7 @@ func (m *Model) runCommand(line string) tea.Cmd {
 func (m *Model) clearOutput() {
 	m.outputContent = ""
 	m.syncOutputViewport(true)
+	m.markDirty()
 }
 
 func (m *Model) appendOutput(s string) {
@@ -428,7 +531,9 @@ func (m *Model) appendOutput(s string) {
 		m.outputContent += "\n"
 	}
 	m.outputContent += s
+	m.outputContent = trimOutputContent(m.outputContent)
 	m.syncOutputViewport(atBottom)
+	m.markDirty()
 }
 
 func (m *Model) syncOutputViewport(stickBottom bool) {
@@ -499,6 +604,7 @@ func (m *Model) layout() {
 
 	m.input.Width = max(20, m.width-6)
 	m.syncOutputViewport(m.outputViewport.AtBottom())
+	m.markDirty()
 }
 
 func (m *Model) outputWidth() int {
@@ -511,14 +617,7 @@ func (m *Model) outputWidth() int {
 }
 
 func (m *Model) renderHeader() string {
-	var b strings.Builder
-	b.WriteString(styleBanner.Render(bannerASCII))
-	b.WriteString("\n")
-	b.WriteString(styleWelcome.Render("Welcome to Ops-Agent!  /help  ·  /mode  ·  Ctrl+C: quit"))
-	b.WriteString("\n\n")
-	b.WriteString(m.renderStatusBar())
-	b.WriteString("\n\n")
-	return b.String()
+	return m.renderHeaderCached()
 }
 
 func (m *Model) todoPanelWidth() int {
@@ -566,8 +665,6 @@ func (m *Model) renderTodoPanel() string {
 
 func (m *Model) renderBody() string {
 	todoW := m.todoPanelWidth()
-	todoPanel := styleTodoHeader.Render("待办") + "\n" + m.renderTodoPanel()
-
 	outW := m.outputWidth()
 	chatView := lipgloss.NewStyle().Width(outW).Height(m.chatHeight()).Render(m.outputViewport.View())
 
@@ -579,7 +676,7 @@ func (m *Model) renderBody() string {
 	}
 
 	if outW >= 20 && m.width > todoW+4 {
-		left := lipgloss.NewStyle().Width(todoW).Height(m.bodyHeight()).Render(todoPanel)
+		left := m.renderLeftColumn()
 		return lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right.String())
 	}
 	return right.String()
@@ -616,6 +713,12 @@ func (m *Model) renderFooter() string {
 		return b.String()
 	}
 
+	if m.acceptMenuOpen {
+		b.WriteString(m.renderAcceptMenu())
+		b.WriteString("\n")
+		return b.String()
+	}
+
 	if m.confirmOpen {
 		b.WriteString(m.renderConfirmMenu())
 		b.WriteString("\n")
@@ -634,7 +737,7 @@ func (m *Model) renderFooter() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(styleHelp.Render("Tab/→ 补全 · j/k 待办 · p 发布 · Ctrl+L 日志 · Ctrl+Y 复制日志"))
+	b.WriteString(styleHelp.Render("[/] 待办/验收 · j/k 移动 · v 查看报告 · Enter 验收"))
 	return b.String()
 }
 
@@ -666,8 +769,19 @@ func (m *Model) View() string {
 	if m.width == 0 {
 		return "Initializing...\n"
 	}
-	view := m.renderHeader() + m.renderBody() + m.renderFooter()
-	return lipgloss.NewStyle().Width(m.width).Render(view)
+	if cached, ok := m.tryCachedView(); ok {
+		return cached
+	}
+	start := time.Now()
+	defer func() {
+		if d := time.Since(start); d >= diagSlowView {
+			recordViewSlow(d, len(m.log.entries), len(m.outputContent))
+		}
+	}()
+	view := m.renderHeaderCached() + m.renderBody() + m.renderFooter()
+	out := lipgloss.NewStyle().Width(m.width).Render(view)
+	m.storeCachedView(out)
+	return out
 }
 
 func (m *Model) renderStatusBar() string {
@@ -680,12 +794,15 @@ func (m *Model) renderStatusBar() string {
 		wh = "wh:on"
 	}
 
-	cwd, _ := os.Getwd()
-	if len(cwd) > 36 {
-		cwd = "…" + cwd[len(cwd)-33:]
-	}
+	cwd := m.cachedCWD()
 
 	line := fmt.Sprintf("%s · %s · %s · %s · 待办 %d", model, mode, wh, watch, m.store.ActiveCount())
+	if s := strings.TrimSpace(m.invStatus); s != "" {
+		if len(s) > 48 {
+			s = s[:48] + "…"
+		}
+		line += " · " + s
+	}
 	if m.width > 0 {
 		pad := m.width - lipgloss.Width(line) - lipgloss.Width(cwd) - 2
 		if pad > 0 {
@@ -713,6 +830,7 @@ func (m *Model) applyCompletionTab() bool {
 	idx := m.completeIdx % len(m.completions)
 	m.input.SetValue(m.completions[idx].Text)
 	m.completeIdx++
+	m.markDirty()
 	return true
 }
 
@@ -725,6 +843,7 @@ func (m *Model) applyCompletionGhost() bool {
 	m.input.SetValue(m.input.Value() + suffix)
 	m.resetCompletions()
 	m.refreshCompletions()
+	m.markDirty()
 	return true
 }
 

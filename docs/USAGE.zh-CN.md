@@ -10,8 +10,9 @@ Ops-Agent 是一个**终端 TUI 程序**，用来：
 
 - 通过 **GitHub Webhook** 把 Issue/PR 评论事件推送到本机
 - 在左侧**待办列表**里集中展示需要处理的 Issue
+- 在**验收**列表里检测新提交的库是否符合格式规范、demo 是否合理
 - 用 `gh` 查看 Issue 详情（按 `i`）
-- 后续版本将接入本地 AI 自动分析与回复（M3）
+- 本地 AI 分析与回复（semi/full 模式）
 
 **你需要准备：**
 
@@ -63,6 +64,13 @@ cp .ops-agent.yaml.example .ops-agent.yaml
 
 待办数据保存在：`~/.local/share/ops-agent/todo.json`
 
+验收队列与克隆目录：
+
+- 队列：`~/.local/share/ops-agent/lib-test/queue.json`
+- 工作区：`~/.local/share/ops-agent/lib-test/workspaces/<owner>/<repo>`
+
+知识库（格式规范、数据手册）：`~/.local/share/ops-agent/knowledge/`
+
 ### 2.4 启动 TUI
 
 ```bash
@@ -72,7 +80,7 @@ cp .ops-agent.yaml.example .ops-agent.yaml
 启动后会看到：
 
 - 顶部：Banner、状态栏（模型 / 模式 / 当前 cwd 仓库 / 待办数量）
-- 左侧：**待办**列表
+- 左侧：**待办**列表（上）与 **验收**列表（下）
 - 右侧：输出区（命令结果、Webhook 提示）
 - 底部：输入框
 
@@ -138,7 +146,7 @@ webhook:
 | **Payload URL** | 与 `public_url` 相同，如 `https://smee.io/YOUR-CHANNEL-ID` |
 | **Content type** | `application/json` |
 | **Secret** | 与 `.ops-agent.yaml` 的 `webhook.secret` 一致；本地调试可都留空 |
-| **Events** | 勾选 **Issues**、**Issue comments**、**Pull requests** |
+| **Events** | 勾选 **Issues**、**Issue comments**、**Pull requests**、**Pushes**、**Releases**（验收）；可选 **Repository**（新建仓库） |
 
 > 待办列表按 Webhook payload 里的 `repository.full_name` 区分仓库（如 `tangjie133/test#34`），**与本地 cwd 无关**。状态栏显示「N 仓库」表示当前待办来自几个不同仓库。
 
@@ -149,6 +157,9 @@ webhook:
 - **Issues**：新建（`opened`）、**关闭（`closed`）**、重新打开（`reopened`）
 - **Issue comments**：评论触发入队（含历史 Issue/PR 讨论区）
 - **Pull requests**：PR 关闭时从待办移除（与 Issues 关闭互补）
+- **Pushes**：推送到**默认分支**时，入 **验收** 队列（需 `lib_test.enabled`）
+- **Releases**：`published` 时按 tag 入队检测
+- **Repository**（可选）：`created` 时入队（需 `lib_test.on_repo_created: true`）
 
 保存后 GitHub 会发 **ping**；TUI 输出区应出现 `Webhook: ping 成功`。
 
@@ -167,7 +178,26 @@ curl http://127.0.0.1:8765/healthz
 WEBHOOK_URL=http://127.0.0.1:8765/webhooks/github make webhook-test
 ```
 
-**真实测试：** 在仓库新建 Issue，或给已有 open Issue 评论，左侧待办应出现对应条目。
+**模拟 push 入队（验收列表）：**
+
+```bash
+# 按你的 listen/path 调整；secret 留空时可不设签名
+WEBHOOK_URL=http://127.0.0.1:8081/webhook \
+LIBTEST_REPO=tangjie133/test \
+LIBTEST_BRANCH=main \
+make webhook-libtest-push
+```
+
+成功时 curl 返回 `{"ok":true,"queued":true}`，左侧 **验收** 出现 `tangjie133/test@main`；若 `lib_test.auto_run: true` 会自动克隆并验收。
+
+> **注意：** 若 curl 长时间无响应，可能是 TUI 未消费 webhook 消息；重启 `./ops-agent`（加载最新二进制与 `lib_test` 配置）后再试。也可用无 TUI 模式单独测 webhook：
+>
+> ```bash
+> OPS_AGENT_WEBHOOK_ONLY=1 ./ops-agent
+> # 另开终端执行 make webhook-libtest-push
+> ```
+
+**真实验证：** 在仓库新建 Issue，或给已有 open Issue 评论，左侧待办应出现对应条目；向默认分支 push 后，**验收** 列表应出现新库项。
 
 ### 3.6 常见错误
 
@@ -178,13 +208,37 @@ WEBHOOK_URL=http://127.0.0.1:8765/webhooks/github make webhook-test
 | 收到事件但不入待办 | 未订阅 Issues | 勾选 Issues |
 | 网页关闭 Issue 后待办仍在 | Webhook 未收到 `closed` 事件 | 用 **Organization Webhook**；确认订阅 Issues + Pull requests；在 GitHub Webhook 页查看 Recent Deliveries |
 | `忽略事件 (issue_comment)` 且无入队 | Issue 已 closed | open Issue 评论才会入队 |
+| 收到 push 但验收无项 | 非默认分支或 `lib_test` 未启用 | 确认 push 到 default branch；检查 `.ops-agent.yaml` 的 `lib_test.enabled` |
+| push 返回 `skipped: lib_test` | 验收功能关闭 | 设置 `lib_test.enabled: true` 并重启 |
 | `address already in use` | 端口被旧进程占用 | 关掉旧 `./ops-agent` 或改 `listen` |
+
+### 3.7 验收配置（lib_test）
+
+在 `.ops-agent.yaml` 中启用（完整示例见 `.ops-agent.yaml.example`）：
+
+```yaml
+lib_test:
+  enabled: true
+  standard: arduino-library   # knowledge/standards/ 下 YAML 名称
+  min_demos: 1
+  demo_dir: examples
+  auto_run: true                # true=自动验收 false=手动（TUI 中 /accept 可改）
+  on_push: true
+  on_release: true
+  on_repo_created: false
+```
+
+验收流程：克隆到 `lib-test/workspaces/`，按规范校验目录/文件/README，并检查 `examples/` 下 demo 数量与基本结构。
+
+**TUI 切换手动/自动：** 输入 `/accept`，在 **执行方式** 项按 Enter 切换（与 `/mode`、`/webhook` 无关）。
 
 ---
 
 ## 4. 界面说明
 
-### 4.1 待办列表（左侧）
+### 4.1 待办与验收（左侧）
+
+左栏上下分两块：**待办**（Issue）与 **验收**（新库格式/demo）。用 `[` / `]` 切换焦点。
 
 每条待办**两行**显示：
 
@@ -195,6 +249,8 @@ WEBHOOK_URL=http://127.0.0.1:8765/webhooks/github make webhook-test
 
 - 第一行：`owner/repo#编号`（多仓库时靠这个区分）
 - 第二行：Issue 标题
+
+**验收**列表每条两行：`owner/repo@分支` + 触发说明（如 `push main`）。状态：`○` pending、`…` 验收中、`✓` 通过、`✗` 未通过。
 
 ### 4.2 输出区（右侧）
 
@@ -212,10 +268,15 @@ WEBHOOK_URL=http://127.0.0.1:8765/webhooks/github make webhook-test
 
 | 键 | 作用 |
 |----|------|
-| `j` / `k` | 待办下移 / 上移 |
-| `i` | 查看选中 Issue 详情（**使用待办里的仓库**） |
-| `d` | 忽略选中待办 |
+| `[` / `]` | 待办 / 验收 焦点切换 |
+| `j` / `k` | 当前焦点列表下移 / 上移 |
+| `i` | （待办）查看选中 Issue 详情 |
+| `Enter` | （验收）手动运行验收 |
+| `v` | （验收）查看验收报告 |
+| `d` | 忽略当前选中项（待办或验收） |
+| `p` | （待办）打开确认菜单 |
 | `Tab` / `→` | 命令补全 |
+| `Ctrl+Y` | 复制日志到剪贴板 |
 | `Ctrl+C` / `Esc` | 退出 |
 
 ### 5.2 斜杠命令
@@ -273,8 +334,9 @@ OPS_AGENT_WEBHOOK_ONLY=1 ./ops-agent
 - [ ] `.ops-agent.yaml` 已配置 smee `public_url`
 - [ ] `./ops-agent` 启动后 Smee「已连接」
 - [ ] GitHub Payload URL = smee 频道（无 `/webhook`）
-- [ ] 订阅 **Issues** + **Issue comments**
+- [ ] 订阅 **Issues** + **Issue comments** + **Pushes**（验收）
 - [ ] 新建 Issue / 评论 / 关闭 各测一次
+- [ ] `make webhook-libtest-push` 或真实 push 后 **验收** 列表有项
 - [ ] 按 `i` 能打开正确仓库的 Issue
 
 ---

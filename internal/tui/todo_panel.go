@@ -3,22 +3,13 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
-const todoSpinnerInterval = 80 * time.Millisecond
-
 var todoSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
-func (m *Model) spinnerTickCmd() tea.Cmd {
-	return tea.Tick(todoSpinnerInterval, func(time.Time) tea.Msg {
-		return spinnerTickMsg{}
-	})
-}
 
 func (m *Model) hasAnalyzingTodo() bool {
 	for _, it := range m.activeTodos() {
@@ -148,6 +139,7 @@ func (m *Model) todoUp() {
 		return
 	}
 	m.todoSel--
+	m.markDirty()
 }
 
 func (m *Model) todoDown() {
@@ -165,6 +157,7 @@ func (m *Model) todoDown() {
 		return
 	}
 	m.todoSel++
+	m.markDirty()
 }
 
 func (m *Model) dismissSelectedTodo() {

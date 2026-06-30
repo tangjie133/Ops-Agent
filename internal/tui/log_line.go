@@ -5,24 +5,22 @@ import (
 	"strings"
 )
 
-// LogLineMsg 由 webhook/smee 等后台组件投递，写入底部日志区。
+// LogLineMsg 已弃用：后台日志请走 backgroundLogSink。保留类型供兼容/诊断。
 type LogLineMsg struct {
 	Line string
 }
 
-type uiLogWriter struct {
-	send func(LogLineMsg)
-}
+type uiLogWriter struct{}
 
 func (w *uiLogWriter) Write(p []byte) (int, error) {
 	line := strings.TrimSpace(string(p))
 	if line != "" {
-		w.send(LogLineMsg{Line: line})
+		bgLog.append(logKindWebhook, line)
 	}
 	return len(p), nil
 }
 
-// NewUILogger 创建写入 TUI 输出区的 logger（仅时间，不含日期）。
-func NewUILogger(send func(LogLineMsg)) *log.Logger {
-	return log.New(&uiLogWriter{send: send}, "", log.Ltime)
+// NewUILogger 创建写入日志文件 + 节流刷新 TUI 日志区的 logger。
+func NewUILogger() *log.Logger {
+	return log.New(&uiLogWriter{}, "", log.Ltime)
 }

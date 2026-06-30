@@ -1,9 +1,11 @@
-.PHONY: build run test tidy headless webhook-only webhook-test clean
+.PHONY: build run test tidy headless webhook-only webhook-test webhook-libtest-push clean kill
 
 BINARY := ops-agent
 MAIN   := ./cmd/ops-agent
 WEBHOOK_URL ?= http://127.0.0.1:8765/webhooks/github
 WEBHOOK_SECRET ?= dev-secret
+LIBTEST_REPO ?= tangjie133/test
+LIBTEST_BRANCH ?= main
 
 ifeq ($(OS),Windows_NT)
     BIN          := $(BINARY).exe
@@ -38,14 +40,47 @@ webhook-only: build
 	OPS_AGENT_WEBHOOK_ONLY=1 $(RUN)
 
 webhook-test:
-	@curl -sf http://127.0.0.1:8765/healthz >/dev/null || (echo "ops-agent 未运行或 webhook 未监听"; exit 1)
+	@HEALTH=$$(echo "$(WEBHOOK_URL)" | sed 's|\(http://[^/]*\).*|\1/healthz|'); \
+	curl -sf "$$HEALTH" >/dev/null || (echo "ops-agent 未运行或 webhook 未监听 ($$HEALTH)"; exit 1)
 	@BODY='{"action":"opened","issue":{"number":99,"title":"webhook test","state":"open","html_url":"https://github.com/o/r/issues/99","labels":[],"assignees":[]},"repository":{"full_name":"o/r"}}'; \
-	SIG=$$(printf '%s' "$$BODY" | openssl dgst -sha256 -hmac "$(WEBHOOK_SECRET)" | awk '{print "sha256="$$2}'); \
-	curl -sS -X POST "$(WEBHOOK_URL)" \
-	  -H "Content-Type: application/json" \
-	  -H "X-GitHub-Event: issues" \
-	  -H "X-Hub-Signature-256: $$SIG" \
-	  -d "$$BODY" | cat; echo
+	if [ -n "$(WEBHOOK_SECRET)" ]; then \
+	  SIG=$$(printf '%s' "$$BODY" | openssl dgst -sha256 -hmac "$(WEBHOOK_SECRET)" | awk '{print "sha256="$$2}'); \
+	  curl -sS -X POST "$(WEBHOOK_URL)" \
+	    -H "Content-Type: application/json" \
+	    -H "X-GitHub-Event: issues" \
+	    -H "X-Hub-Signature-256: $$SIG" \
+	    -d "$$BODY" | cat; echo; \
+	else \
+	  curl -sS -X POST "$(WEBHOOK_URL)" \
+	    -H "Content-Type: application/json" \
+	    -H "X-GitHub-Event: issues" \
+	    -d "$$BODY" | cat; echo; \
+	fi
+
+webhook-libtest-push:
+	@HEALTH=$$(echo "$(WEBHOOK_URL)" | sed 's|\(http://[^/]*\).*|\1/healthz|'); \
+	curl -sf "$$HEALTH" >/dev/null || (echo "ops-agent 未运行或 webhook 未监听 ($$HEALTH)"; exit 1)
+	@BODY='{"ref":"refs/heads/$(LIBTEST_BRANCH)","repository":{"full_name":"$(LIBTEST_REPO)","default_branch":"$(LIBTEST_BRANCH)"}}'; \
+	if [ -n "$(WEBHOOK_SECRET)" ]; then \
+	  SIG=$$(printf '%s' "$$BODY" | openssl dgst -sha256 -hmac "$(WEBHOOK_SECRET)" | awk '{print "sha256="$$2}'); \
+	  curl -sS -X POST "$(WEBHOOK_URL)" \
+	    -H "Content-Type: application/json" \
+	    -H "X-GitHub-Event: push" \
+	    -H "X-Hub-Signature-256: $$SIG" \
+	    -d "$$BODY" | cat; echo; \
+	else \
+	  curl -sS -X POST "$(WEBHOOK_URL)" \
+	    -H "Content-Type: application/json" \
+	    -H "X-GitHub-Event: push" \
+	    -d "$$BODY" | cat; echo; \
+	fi
 
 clean:
 	-$(CLEAN)
+
+# 卡死时另开终端执行：先 SIGINT，1s 后 SIGKILL
+kill:
+	-pkill -INT -x $(BINARY) 2>/dev/null || pkill -INT -f '/ops-agent' 2>/dev/null || true
+	@sleep 1
+	-pkill -9 -x $(BINARY) 2>/dev/null || pkill -9 -f '/ops-agent' 2>/dev/null || true
+	@pgrep -a $(BINARY) 2>/dev/null || echo 'ops-agent 已停止'

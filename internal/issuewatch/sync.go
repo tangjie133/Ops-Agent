@@ -40,6 +40,12 @@ func EnqueueOnComment(cfg *config.Config, store *todo.FileStore, repo string, is
 	if iss.State != "" && iss.State != "OPEN" {
 		return &EnqueueResult{Reason: "issue closed"}, nil
 	}
+	if it, ok := store.Get(repo, iss.Number); ok {
+		switch it.Status {
+		case todo.StatusInTodo, todo.StatusAnalyzing, todo.StatusReady, todo.StatusPosted, todo.StatusFailed:
+			return &EnqueueResult{Reason: "already active"}, nil
+		}
+	}
 	return Reopen(cfg, store, repo, iss)
 }
 

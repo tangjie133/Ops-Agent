@@ -72,6 +72,21 @@ var (
 	styleInvestigatorLog = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FBBF24"))
 
+	styleTestHeader = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#34D399")).
+			Bold(true)
+
+	styleTestSelected = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#34D399")).
+			Bold(true)
+
+	styleTestPass = lipgloss.NewStyle().
+			Foreground(colorOK)
+
+	styleTestFail = lipgloss.NewStyle().
+			Foreground(colorError).
+			Bold(true)
+
 	styleHelp = lipgloss.NewStyle().
 			Foreground(colorMuted)
 
@@ -136,7 +151,7 @@ func (m *Model) activeFooterLines() int {
 		}
 		return lines
 	}
-	if m.webhookMenuOpen || m.modeMenuOpen {
+	if m.webhookMenuOpen || m.modeMenuOpen || m.acceptMenuOpen {
 		lines := menuFooterLines
 		if m.webhookMenuOpen {
 			switch m.webhookMenuLevel {
@@ -147,6 +162,9 @@ func (m *Model) activeFooterLines() int {
 			case webhookMenuLevelIssue:
 				lines = 16
 			}
+		}
+		if m.acceptMenuOpen {
+			lines = 16
 		}
 		if m.webhookMenuOpen && m.webhookEditField >= 0 {
 			lines += 4

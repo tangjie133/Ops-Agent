@@ -20,7 +20,8 @@ const (
 	EventReopened  EventKind = "reopened"
 	EventSkipped   EventKind = "skipped"
 	EventPing      EventKind = "ping"
-	EventIgnored   EventKind = "ignored"
+	EventIgnored      EventKind = "ignored"
+	EventLibTestQueued EventKind = "lib_test_queued"
 )
 
 func (e Event) Message() string {
@@ -54,6 +55,11 @@ func (e Event) Message() string {
 			return "Webhook: 忽略事件 (" + e.Reason + ")"
 		}
 		return "Webhook: 忽略未支持的事件"
+	case EventLibTestQueued:
+		if e.Title != "" {
+			return fmt.Sprintf("Webhook: 验收入队 %s (%s) %s", e.Repo, e.Reason, e.Title)
+		}
+		return fmt.Sprintf("Webhook: 验收入队 %s (%s)", e.Repo, e.Reason)
 	default:
 		return "Webhook: 事件已处理"
 	}

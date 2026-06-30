@@ -24,6 +24,7 @@ var slashCommands = []commandSpec{
 	{name: "/clean", hint: "清空输出区"},
 	{name: "/check", hint: "PR 检测"},
 	{name: "/webhook", hint: "Webhook 配置菜单"},
+	{name: "/accept", hint: "验收配置（手动/自动）"},
 	{name: "/model", hint: "模型配置菜单"},
 	{name: "/ai", hint: "模型配置菜单"},
 	{name: "/proxy", hint: "网络代理配置菜单"},

@@ -62,9 +62,17 @@ func (a *Agent) manualAnalyze(ctx context.Context, item todo.Item) (string, bool
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("── 草稿就绪 %s ──\n\n", ref))
-	b.WriteString(draft)
+	b.WriteString(truncateDraftPreview(draft, 2000))
 	b.WriteString("\n\n回复「发布」或按 p 键发送到 GitHub。")
 	return b.String(), true, nil
+}
+
+func truncateDraftPreview(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max] + "\n\n…（已截断，完整草稿已保存，按 p 发布）"
 }
 
 func (a *Agent) manualPost(ctx context.Context, item todo.Item) (string, bool, error) {

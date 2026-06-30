@@ -17,6 +17,9 @@ type Standard struct {
 	RequiredDirs        []string `yaml:"required_dirs"`
 	ForbiddenPaths      []string `yaml:"forbidden_paths"`
 	ReadmeShouldContain []string `yaml:"readme_should_contain"`
+	MinDemos            int      `yaml:"min_demos"`
+	DemoDir             string   `yaml:"demo_dir"`
+	DemoExtensions      []string `yaml:"demo_extensions"`
 	Notes               string   `yaml:"notes"`
 }
 

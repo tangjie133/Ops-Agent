@@ -52,7 +52,8 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, stor
 	case "/clean", "/clear":
 		return "" // handled in model: clears output before runCommand
 	case "/logs":
-		return fmt.Sprintf("复制全部日志: Ctrl+Y 或 /logs copy\n日志文件: %s", config.LogFilePath())
+		return fmt.Sprintf("界面日志: %s\n诊断日志: %s\n复制界面日志: Ctrl+Y\n排查卡顿: tail -f 诊断日志（OPS_AGENT_DIAG=0 可关闭）",
+			config.LogFilePath(), config.DiagLogFilePath())
 	default:
 		return fmt.Sprintf("未知命令: %s\n输入 /help 查看可用命令。", cmd)
 	}
@@ -63,8 +64,9 @@ func helpText() string {
   /help              显示帮助
   /status            检查 gh 与 llama-server
   /clean             清空输出区域
-  /logs              日志复制说明（Ctrl+Y 复制 · 文件路径）
-  /webhook           打开 Webhook 配置菜单（二级菜单，自动保存）
+  /logs              界面日志与诊断日志路径（卡顿排查）
+  /webhook           打开 Webhook 配置菜单（Issue 入队 · 自动保存）
+  /accept            验收配置（与 Issue 独立 · 手动/自动）
   /model             打开模型配置菜单（base_url / model / api_key）
   /proxy             打开网络代理菜单（翻墙 / gh clone）
   /mode              打开模式选择菜单（1/2/3 或 j/k + Enter，自动保存）
@@ -78,7 +80,10 @@ func helpText() string {
   Enter        发送（自然语言 → Agent）
   Tab / →      命令自动补全
   Ctrl+C       退出
-  j / k        待办列表上/下（输入框为空时）
+  j / k        待办/验收列表上/下（[ 待办 · ] 验收）
+  [ / ]        切换待办 / 验收面板焦点
+  v            验收项：查看验收报告
+  Enter        验收项：立即执行验收
   i            查看选中待办 issue 详情
   p            发布 ready 草稿（semi 确认 / manual）
   d            忽略选中待办
@@ -206,7 +211,7 @@ func cmdIssue(ctx context.Context, gh *github.Client, store *todo.FileStore, rep
 	if item, ok := store.Get(repo, num); ok {
 		b.WriteString(fmt.Sprintf("\n待办状态: %s\n", item.Status))
 		if item.Draft != "" {
-			b.WriteString("\n草稿:\n" + item.Draft + "\n")
+			b.WriteString("\n草稿:\n" + truncateForDisplay(item.Draft, 2000) + "\n")
 		}
 	} else {
 		b.WriteString("\n待办: 未收录\n")

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -30,23 +31,34 @@ func (m *Model) workerTickCmd() tea.Cmd {
 }
 
 func (m *Model) runWorkerCmd() tea.Cmd {
+	if m.workerBusy {
+		return nil
+	}
+	m.workerBusy = true
 	invLog := m.investigatorLogFn
+	ctx := m.bgCtx()
 	return func() tea.Msg {
 		if !m.aiOK || m.cfg.IssueAutomation.Mode == config.ModeManual {
 			return workerDoneMsg{}
+		}
+		if err := ctx.Err(); err != nil {
+			return workerDoneMsg{err: err}
 		}
 		w := worker.New(m.cfg, m.store, m.gh)
 		if invLog != nil {
 			w.SetInvestigatorLog(invLog)
 		}
-		res, err := w.Process(context.Background())
+		res, err := w.Process(ctx)
 		return workerDoneMsg{result: res, err: err}
 	}
 }
 
 func (m *Model) handleWorkerDone(msg workerDoneMsg) tea.Cmd {
+	m.workerBusy = false
 	if msg.err != nil {
-		if msg.result != nil && msg.result.ErrMsg != "" {
+		if errors.Is(msg.err, context.Canceled) {
+			m.appendLogKind(logKindWorker, "Worker: 已取消")
+		} else if msg.result != nil && msg.result.ErrMsg != "" {
 			m.appendLogKind(logKindError, "Worker: "+msg.result.ErrMsg)
 		} else {
 			m.appendLogKind(logKindError, "Worker: "+msg.err.Error())
@@ -64,16 +76,17 @@ func (m *Model) handleWorkerDone(msg workerDoneMsg) tea.Cmd {
 }
 
 func (m *Model) triggerWorkerIfNeeded() tea.Cmd {
-	if m.cfg.IssueAutomation.Mode == config.ModeManual || !m.aiOK {
+	if m.workerBusy || m.cfg.IssueAutomation.Mode == config.ModeManual || !m.aiOK {
 		return nil
 	}
 	return m.runWorkerCmd()
 }
 
 func (m *Model) postDraft(repo string, num int) tea.Cmd {
+	ctx := m.bgCtx()
 	return func() tea.Msg {
 		w := worker.New(m.cfg, m.store, m.gh)
-		if err := w.PostDraft(context.Background(), repo, num); err != nil {
+		if err := w.PostDraft(ctx, repo, num); err != nil {
 			return commandDoneMsg{output: "发布失败: " + err.Error()}
 		}
 		return commandDoneMsg{output: fmt.Sprintf("已发布评论 %s#%d", repo, num)}
@@ -145,6 +158,7 @@ func (m *Model) renderConfirmMenu() string {
 
 func (m *Model) runAgentChat(line string) tea.Cmd {
 	invLog := m.investigatorLogFn
+	ctx := m.bgCtx()
 	return func() tea.Msg {
 		cx := agent.ChatContext{}
 		active := m.activeTodos()
@@ -156,7 +170,7 @@ func (m *Model) runAgentChat(line string) tea.Cmd {
 		if invLog != nil {
 			a.SetInvestigatorLog(invLog)
 		}
-		out, err := a.Chat(context.Background(), line, cx)
+		out, err := a.Chat(ctx, line, cx)
 		if err != nil {
 			return commandDoneMsg{output: "Agent: " + err.Error()}
 		}

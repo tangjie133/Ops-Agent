@@ -1,4 +1,4 @@
-package todo
+package libtest
 
 import (
 	"encoding/json"
@@ -13,25 +13,31 @@ import (
 type Status string
 
 const (
-	StatusInTodo    Status = "in_todo"
-	StatusAnalyzing Status = "analyzing"
-	StatusReady     Status = "ready"
-	StatusPosted    Status = "posted"
-	StatusDone      Status = "done"
+	StatusPending   Status = "pending"
+	StatusChecking  Status = "checking"
+	StatusPass      Status = "pass"
+	StatusFail      Status = "fail"
 	StatusDismissed Status = "dismissed"
-	StatusFailed    Status = "failed"
 )
 
+// Item 待验收库（整仓，非 Issue）。
 type Item struct {
 	Repo      string    `json:"repo"`
-	Number    int       `json:"number"`
+	Ref       string    `json:"ref"`
+	Trigger   string    `json:"trigger"`
 	Title     string    `json:"title"`
-	URL       string    `json:"url"`
-	Labels    []string  `json:"labels,omitempty"`
 	Status    Status    `json:"status"`
-	Draft     string    `json:"draft,omitempty"`
+	Workspace string    `json:"workspace,omitempty"`
+	Report    string    `json:"report,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func Key(repo, ref string) string {
+	if ref == "" {
+		ref = "HEAD"
+	}
+	return fmt.Sprintf("%s@%s", repo, ref)
 }
 
 type FileStore struct {
@@ -41,28 +47,21 @@ type FileStore struct {
 	lastReload time.Time
 }
 
-func Key(repo string, num int) string {
-	return fmt.Sprintf("%s#%d", repo, num)
-}
-
 func Load(path string) (*FileStore, error) {
-	s := &FileStore{
-		path:  path,
-		items: make(map[string]Item),
-	}
+	s := &FileStore{path: path, items: make(map[string]Item)}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return s, nil
 		}
-		return nil, fmt.Errorf("read todo store: %w", err)
+		return nil, err
 	}
 	var items []Item
 	if err := json.Unmarshal(data, &items); err != nil {
-		return nil, fmt.Errorf("parse todo store: %w", err)
+		return nil, err
 	}
 	for _, it := range items {
-		s.items[Key(it.Repo, it.Number)] = it
+		s.items[Key(it.Repo, it.Ref)] = it
 	}
 	return s, nil
 }
@@ -75,108 +74,83 @@ func (s *FileStore) List() []Item {
 		out = append(out, it)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
-			return out[i].Number > out[j].Number
-		}
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
 	return out
 }
 
-func (s *FileStore) ActiveCount() int {
+func (s *FileStore) Get(repo, ref string) (Item, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	n := 0
-	for _, it := range s.items {
-		switch it.Status {
-		case StatusDismissed, StatusDone:
-			continue
-		default:
-			n++
-		}
-	}
-	return n
-}
-
-func (s *FileStore) Get(repo string, num int) (Item, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	it, ok := s.items[Key(repo, num)]
+	it, ok := s.items[Key(repo, ref)]
 	return it, ok
-}
-
-func (s *FileStore) Has(repo string, num int) bool {
-	_, ok := s.Get(repo, num)
-	return ok
-}
-
-// ShouldEnqueue 判断扫描是否应写入待办。
-// dismissed / done 不再入队；已在队列中的也不重复写入。
-func (s *FileStore) ShouldEnqueue(repo string, num int) bool {
-	it, ok := s.Get(repo, num)
-	if !ok {
-		return true
-	}
-	switch it.Status {
-	case StatusDismissed, StatusDone:
-		return false
-	default:
-		return false
-	}
 }
 
 func (s *FileStore) Upsert(item Item) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UTC()
-	key := Key(item.Repo, item.Number)
-	if existing, ok := s.items[key]; ok {
-		item.CreatedAt = existing.CreatedAt
-	} else {
-		if item.CreatedAt.IsZero() {
-			item.CreatedAt = now
-		}
+	k := Key(item.Repo, item.Ref)
+	if ex, ok := s.items[k]; ok {
+		item.CreatedAt = ex.CreatedAt
+	} else if item.CreatedAt.IsZero() {
+		item.CreatedAt = now
 	}
 	if item.Status == "" {
-		item.Status = StatusInTodo
+		item.Status = StatusPending
 	}
 	item.UpdatedAt = now
-	s.items[key] = item
+	s.items[k] = item
 	return s.saveLocked()
 }
 
-func (s *FileStore) Transition(repo string, num int, to Status) error {
+func (s *FileStore) Transition(repo, ref string, to Status) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := Key(repo, num)
-	it, ok := s.items[key]
+	k := Key(repo, ref)
+	it, ok := s.items[k]
 	if !ok {
-		return fmt.Errorf("todo item not found: %s", key)
+		return fmt.Errorf("libtest item not found: %s", k)
 	}
 	it.Status = to
 	it.UpdatedAt = time.Now().UTC()
-	s.items[key] = it
+	s.items[k] = it
 	return s.saveLocked()
 }
 
-func (s *FileStore) SetDraft(repo string, num int, draft string) error {
+func (s *FileStore) SetReport(repo, ref, workspace, report string, ok bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := Key(repo, num)
-	it, ok := s.items[key]
-	if !ok {
-		return fmt.Errorf("todo item not found: %s", key)
+	k := Key(repo, ref)
+	it, okItem := s.items[k]
+	if !okItem {
+		return fmt.Errorf("libtest item not found: %s", k)
 	}
-	it.Draft = draft
+	it.Workspace = workspace
+	it.Report = report
+	if ok {
+		it.Status = StatusPass
+	} else {
+		it.Status = StatusFail
+	}
 	it.UpdatedAt = time.Now().UTC()
-	s.items[key] = it
+	s.items[k] = it
 	return s.saveLocked()
 }
 
-func (s *FileStore) Save() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.saveLocked()
+func (s *FileStore) ShouldEnqueue(repo, ref string) bool {
+	it, ok := s.Get(repo, ref)
+	if !ok {
+		return true
+	}
+	switch it.Status {
+	case StatusDismissed:
+		return false
+	case StatusPending, StatusChecking:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *FileStore) saveLocked() error {
@@ -204,13 +178,13 @@ func (s *FileStore) saveLocked() error {
 	return os.Rename(tmp, s.path)
 }
 
-// Reload 从磁盘重新加载（供 TUI 轮询；与 webhook/worker 共用文件锁）。
+// Reload 从磁盘重新加载（供 TUI 轮询）。
 func (s *FileStore) Reload() error {
 	_, err := s.ReloadIfChanged()
 	return err
 }
 
-// ReloadIfChanged 仅在文件 mtime 变化时重载，避免轮询时无谓 JSON 解析。
+// ReloadIfChanged 仅在文件 mtime 变化时重载。
 func (s *FileStore) ReloadIfChanged() (changed bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -227,7 +201,7 @@ func (s *FileStore) ReloadIfChanged() (changed bool, err error) {
 			s.lastReload = time.Time{}
 			return true, nil
 		}
-		return false, fmt.Errorf("stat todo store: %w", statErr)
+		return false, fmt.Errorf("stat libtest store: %w", statErr)
 	}
 	mod := fi.ModTime()
 	if !mod.After(s.lastReload) {
@@ -235,15 +209,15 @@ func (s *FileStore) ReloadIfChanged() (changed bool, err error) {
 	}
 	data, err := os.ReadFile(s.path)
 	if err != nil {
-		return false, fmt.Errorf("reload todo store: %w", err)
+		return false, fmt.Errorf("reload libtest store: %w", err)
 	}
 	var items []Item
 	if err := json.Unmarshal(data, &items); err != nil {
-		return false, fmt.Errorf("parse todo store: %w", err)
+		return false, fmt.Errorf("parse libtest store: %w", err)
 	}
 	fresh := make(map[string]Item, len(items))
 	for _, it := range items {
-		fresh[Key(it.Repo, it.Number)] = it
+		fresh[Key(it.Repo, it.Ref)] = it
 	}
 	s.items = fresh
 	s.lastReload = mod

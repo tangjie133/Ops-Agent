@@ -9,24 +9,27 @@ import (
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/issuewatch"
+	"github.com/ZzedJay/Ops-Agent/internal/libtest"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
 type Handler struct {
 	cfg            *config.Config
 	store          *todo.FileStore
+	libTest        *libtest.FileStore
 	onEvent        OnEvent
 	logger         *log.Logger
 	secretWarnOnce sync.Once
 }
 
-func NewHandler(cfg *config.Config, store *todo.FileStore, onEvent OnEvent, logger *log.Logger) *Handler {
+func NewHandler(cfg *config.Config, store *todo.FileStore, libTest *libtest.FileStore, onEvent OnEvent, logger *log.Logger) *Handler {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
 	}
 	return &Handler{
 		cfg:     cfg,
 		store:   store,
+		libTest: libTest,
 		onEvent: onEvent,
 		logger:  logger,
 	}
@@ -70,6 +73,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handlePullRequest(w, body)
 	case "issue_comment":
 		h.handleIssueComment(w, body)
+	case "push":
+		h.handlePush(w, body)
+	case "release":
+		h.handleRelease(w, body)
+	case "create":
+		h.handleCreate(w, body)
 	case "ping":
 		h.emit(Event{Kind: EventPing})
 		w.WriteHeader(http.StatusOK)
@@ -100,13 +109,6 @@ func (h *Handler) handleIssues(w http.ResponseWriter, body []byte) {
 	case "reopened":
 		h.handleIssueReopened(w, repo, evt)
 	default:
-		h.emit(Event{
-			Kind:   EventSkipped,
-			Repo:   repo,
-			Number: number,
-			Title:  title,
-			Reason: "action=" + evt.Action,
-		})
 		writeJSON(w, map[string]any{"ok": true, "skipped": evt.Action})
 	}
 }
@@ -116,14 +118,7 @@ func (h *Handler) handleIssueOpened(w http.ResponseWriter, repo string, evt Issu
 	title := evt.Issue.Title
 
 	if !h.cfg.IssueWatch.Enabled {
-		h.emit(Event{
-			Kind:   EventSkipped,
-			Repo:   repo,
-			Number: number,
-			Title:  title,
-			Reason: "issue_watch disabled",
-		})
-		writeJSON(w, map[string]any{"ok": true, "added": false, "reason": "issue_watch disabled"})
+		writeEnqueueSkip(w, "issue_watch disabled")
 		return
 	}
 
@@ -145,7 +140,10 @@ func (h *Handler) handleIssueOpened(w http.ResponseWriter, repo string, evt Issu
 		writeJSON(w, map[string]any{"ok": true, "added": true, "repo": repo, "number": res.Item.Number})
 		return
 	}
-
+	if silentEnqueueReason(res.Reason) {
+		writeEnqueueSkip(w, res.Reason)
+		return
+	}
 	h.emit(Event{
 		Kind:   EventSkipped,
 		Repo:   repo,
@@ -153,7 +151,7 @@ func (h *Handler) handleIssueOpened(w http.ResponseWriter, repo string, evt Issu
 		Title:  title,
 		Reason: res.Reason,
 	})
-	writeJSON(w, map[string]any{"ok": true, "added": false, "reason": res.Reason})
+	writeEnqueueSkip(w, res.Reason)
 }
 
 func (h *Handler) handleIssueClosed(w http.ResponseWriter, repo string, number int, title string) {
@@ -168,6 +166,10 @@ func (h *Handler) handleIssueClosed(w http.ResponseWriter, repo string, number i
 		writeJSON(w, map[string]any{"ok": true, "removed": true, "repo": repo, "number": number})
 		return
 	}
+	if silentEnqueueReason(res.Reason) {
+		writeRemoveSkip(w, res.Reason)
+		return
+	}
 	h.emit(Event{
 		Kind:   EventSkipped,
 		Repo:   repo,
@@ -175,7 +177,7 @@ func (h *Handler) handleIssueClosed(w http.ResponseWriter, repo string, number i
 		Title:  title,
 		Reason: res.Reason,
 	})
-	writeJSON(w, map[string]any{"ok": true, "removed": false, "reason": res.Reason})
+	writeRemoveSkip(w, res.Reason)
 }
 
 func (h *Handler) handleIssueReopened(w http.ResponseWriter, repo string, evt IssuesEvent) {
@@ -198,6 +200,10 @@ func (h *Handler) handleIssueReopened(w http.ResponseWriter, repo string, evt Is
 		writeJSON(w, map[string]any{"ok": true, "added": true, "repo": repo, "number": res.Item.Number})
 		return
 	}
+	if silentEnqueueReason(res.Reason) {
+		writeEnqueueSkip(w, res.Reason)
+		return
+	}
 	h.emit(Event{
 		Kind:   EventSkipped,
 		Repo:   repo,
@@ -205,7 +211,7 @@ func (h *Handler) handleIssueReopened(w http.ResponseWriter, repo string, evt Is
 		Title:  title,
 		Reason: res.Reason,
 	})
-	writeJSON(w, map[string]any{"ok": true, "added": false, "reason": res.Reason})
+	writeEnqueueSkip(w, res.Reason)
 }
 
 func (h *Handler) handlePullRequest(w http.ResponseWriter, body []byte) {
@@ -223,13 +229,6 @@ func (h *Handler) handlePullRequest(w http.ResponseWriter, body []byte) {
 	case "closed":
 		h.handleIssueClosed(w, repo, number, title)
 	default:
-		h.emit(Event{
-			Kind:   EventSkipped,
-			Repo:   repo,
-			Number: number,
-			Title:  title,
-			Reason: "action=" + evt.Action,
-		})
 		writeJSON(w, map[string]any{"ok": true, "skipped": evt.Action})
 	}
 }
@@ -246,26 +245,12 @@ func (h *Handler) handleIssueComment(w http.ResponseWriter, body []byte) {
 	title := evt.Issue.Title
 
 	if evt.Action != "created" {
-		h.emit(Event{
-			Kind:   EventSkipped,
-			Repo:   repo,
-			Number: number,
-			Title:  title,
-			Reason: "action=" + evt.Action,
-		})
 		writeJSON(w, map[string]any{"ok": true, "skipped": evt.Action})
 		return
 	}
 
 	if !h.cfg.IssueWatch.Enabled {
-		h.emit(Event{
-			Kind:   EventSkipped,
-			Repo:   repo,
-			Number: number,
-			Title:  title,
-			Reason: "issue_watch disabled",
-		})
-		writeJSON(w, map[string]any{"ok": true, "added": false, "reason": "issue_watch disabled"})
+		writeEnqueueSkip(w, "issue_watch disabled")
 		return
 	}
 
@@ -289,14 +274,20 @@ func (h *Handler) handleIssueComment(w http.ResponseWriter, body []byte) {
 		return
 	}
 
+	reason := res.Reason
+	if silentEnqueueReason(reason) {
+		writeEnqueueSkip(w, reason)
+		return
+	}
+
 	h.emit(Event{
 		Kind:   EventSkipped,
 		Repo:   repo,
 		Number: number,
 		Title:  title,
-		Reason: res.Reason,
+		Reason: reason,
 	})
-	writeJSON(w, map[string]any{"ok": true, "added": false, "reason": res.Reason})
+	writeEnqueueSkip(w, reason)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

@@ -2,19 +2,16 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
-
-	"github.com/ZzedJay/Ops-Agent/internal/config"
 )
 
 const logPlaceholder = "（无日志）"
+
+const logRenderMax = 80 // viewport 仅显示数行，不必对 200 条全量渲染
 
 type logKind int
 
@@ -53,23 +50,15 @@ func (m *Model) appendLogKind(kind logKind, text string) {
 		return
 	}
 	atBottom := len(m.log.entries) == 0 || m.log.viewport.AtBottom()
-	m.log.entries = append(m.log.entries, logEntry{kind: kind, text: text})
+	m.log.entries = append(m.log.entries, logEntry{kind: kind, text: truncateLogDisplay(text)})
+	m.log.entries = trimLogEntries(m.log.entries, maxLogEntries)
+	queueLogPersist(text)
 	m.syncLogViewport(atBottom)
-	m.persistLogLine(text)
+	m.markDirty()
 }
 
 func (m *Model) persistLogLine(text string) {
-	path := config.LogFilePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	ts := time.Now().Format("15:04:05")
-	_, _ = fmt.Fprintf(f, "%s %s\n", ts, text)
+	queueLogPersist(text)
 }
 
 func (m *Model) logPlainText() string {
@@ -112,15 +101,20 @@ func styleLogEntry(kind logKind, text string) string {
 }
 
 func (m *Model) syncLogViewport(stickBottom bool) {
+	entries := m.log.entries
+	if len(entries) > logRenderMax {
+		entries = entries[len(entries)-logRenderMax:]
+	}
 	var b strings.Builder
-	if len(m.log.entries) == 0 {
+	if len(entries) == 0 {
 		b.WriteString(logPlaceholder)
 	} else {
-		for i, e := range m.log.entries {
+		for i, e := range entries {
 			if i > 0 {
 				b.WriteByte('\n')
 			}
-			b.WriteString(styleLogEntry(e.kind, e.text))
+			// 日志区用纯文本，避免 lipgloss 对数百条逐行上色拖慢 View。
+			b.WriteString(e.text)
 		}
 	}
 	m.log.viewport.SetContent(b.String())

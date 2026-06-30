@@ -20,6 +20,7 @@ type Config struct {
 	IssueWatch      IssueWatchConfig      `yaml:"issue_watch"`
 	Webhook         WebhookConfig         `yaml:"webhook"`
 	IssueAutomation IssueAutomationConfig `yaml:"issue_automation"`
+	LibTest         LibTestConfig         `yaml:"lib_test"`
 	Notify          NotifyConfig          `yaml:"notify"`
 	AI              AIConfig              `yaml:"ai"`
 	Proxy           ProxyConfig           `yaml:"proxy"`
@@ -117,6 +118,13 @@ func Default() *Config {
 				MaxCommentsPerHour: 10,
 				CommentFooter:      "---\n_Posted by Ops-Agent (auto)_",
 			},
+		},
+		LibTest: LibTestConfig{
+			Enabled:  true,
+			Standard: "arduino-library",
+			AutoRun:  true,
+			OnPush:   true,
+			OnRelease: true,
 		},
 		Notify: NotifyConfig{
 			OnFailure: true,
@@ -335,6 +343,22 @@ func LogFilePath() string {
 		return filepath.Join(home, ".local", "share", "ops-agent", "logs", "tui.log")
 	}
 	return filepath.Join("logs", "tui.log")
+}
+
+// DiagLogFilePath TUI 诊断日志（性能/桥接/慢 Update，tail -f 排查卡顿）。
+func DiagLogFilePath() string {
+	if p := os.Getenv("OPS_AGENT_DATA"); p != "" {
+		return filepath.Join(p, "logs", "tui-diag.log")
+	}
+	if runtime.GOOS == "windows" {
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			return filepath.Join(appData, "ops-agent", "logs", "tui-diag.log")
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".local", "share", "ops-agent", "logs", "tui-diag.log")
+	}
+	return filepath.Join("logs", "tui-diag.log")
 }
 
 // WebhookAddr 返回 webhook 监听地址（listen + path）。

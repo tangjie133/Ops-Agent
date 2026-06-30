@@ -51,7 +51,7 @@ func FormatStatus(cfg *config.Config) string {
 	b.WriteString("\n── 接入步骤（Smee · 多仓库）──\n")
 	b.WriteString("推荐 Organization Webhook（一次配置，组织内所有仓库事件均推送）:\n")
 	b.WriteString("  GitHub → Organization Settings → Webhooks → Add webhook\n")
-	b.WriteString("  Payload URL = Public URL；Events 勾选 Issues、Issue comments、Pull requests\n")
+	b.WriteString("  Payload URL = Public URL；Events 勾选 Issues、Issue comments、Pull requests、Pushes、Releases\n")
 	b.WriteString("单仓库亦可: 仓库 Settings → Webhooks，同样填写 Public URL 与 Events\n")
 	b.WriteString("\n1. 打开 https://smee.io 生成频道 URL\n")
 	b.WriteString("2. /webhook → 连接配置 → Public URL 填 smee 频道\n")
@@ -59,6 +59,7 @@ func FormatStatus(cfg *config.Config) string {
 	b.WriteString("4. 关闭/重开/评论均按 payload 中的 owner/repo 同步，与本地 cwd 无关\n")
 	b.WriteString("5. 启动 ./ops-agent，无需再单独运行 smee-client\n")
 
-	b.WriteString("\n本地测试: make webhook-test（需 ops-agent 已运行）\n")
+	b.WriteString("\n本地测试: make webhook-test（Issue 入队）\n")
+	b.WriteString("验收入队: WEBHOOK_URL=<本地URL> make webhook-libtest-push\n")
 	return b.String()
 }

@@ -193,6 +193,9 @@ required_files:
 required_dirs:
   - examples
 
+min_demos: 1
+demo_dir: examples
+
 readme_should_contain:
   - "## Installation"
   - "## Example"

@@ -37,7 +37,8 @@ type Assignee struct {
 }
 
 type Repository struct {
-	FullName string `json:"full_name"`
+	FullName      string `json:"full_name"`
+	DefaultBranch string `json:"default_branch"`
 }
 
 type PullRequestEvent struct {
@@ -50,6 +51,25 @@ type PullRequestPayload struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
 	State  string `json:"state"`
+}
+
+type PushEvent struct {
+	Ref        string     `json:"ref"`
+	Repository Repository `json:"repository"`
+}
+
+type ReleaseEvent struct {
+	Action     string `json:"action"`
+	Release    struct {
+		TagName string `json:"tag_name"`
+		Name    string `json:"name"`
+	} `json:"release"`
+	Repository Repository `json:"repository"`
+}
+
+type RepositoryEvent struct {
+	Action     string     `json:"action"`
+	Repository Repository `json:"repository"`
 }
 
 func (i Issue) IsPullRequest() bool {

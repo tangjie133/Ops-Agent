@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
+	"github.com/ZzedJay/Ops-Agent/internal/libtest"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 	"github.com/ZzedJay/Ops-Agent/internal/webhook"
 )
@@ -27,8 +28,13 @@ func RunWebhookOnly(cfg *config.Config) int {
 		fmt.Fprintf(os.Stderr, "todo store: %v\n", err)
 		return 1
 	}
+	libTestStore, err := libtest.Load(config.LibTestStorePath())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "libtest store: %v\n", err)
+		return 1
+	}
 
-	srv := webhook.NewRuntime(cfg, store, func(evt webhook.Event) {
+	srv := webhook.NewRuntime(cfg, store, libTestStore, func(evt webhook.Event) {
 		log.Printf("%s", evt.Message())
 	}, log.Default())
 	if err := srv.Start(); err != nil {

@@ -298,6 +298,34 @@ func (c *Client) CloneRepo(ctx context.Context, repo, dest string) error {
 	return err
 }
 
+// GitPull 在已有克隆目录执行 git pull。
+func (c *Client) GitPull(ctx context.Context, dir string, proxy config.ProxyConfig) error {
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "pull", "--ff-only", "--quiet")
+	netproxy.ConfigureCmd(cmd, proxy)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git pull: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// GitCheckout 切换到分支或 tag。
+func (c *Client) GitCheckout(ctx context.Context, dir, ref string, proxy config.ProxyConfig) error {
+	ref = strings.TrimPrefix(ref, "refs/heads/")
+	ref = strings.TrimPrefix(ref, "refs/tags/")
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "fetch", "--depth", "1", "origin", ref)
+	netproxy.ConfigureCmd(cmd, proxy)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git fetch: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	cmd = exec.CommandContext(ctx, "git", "-C", dir, "checkout", ref)
+	netproxy.ConfigureCmd(cmd, proxy)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func (c *Client) Available() bool {
 	_, err := exec.LookPath("gh")
 	return err == nil

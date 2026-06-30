@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
+	"github.com/ZzedJay/Ops-Agent/internal/libtest"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
@@ -19,12 +20,12 @@ type Server struct {
 	logger *log.Logger
 }
 
-func NewServer(cfg *config.Config, store *todo.FileStore, onEvent OnEvent, logger *log.Logger) *Server {
+func NewServer(cfg *config.Config, store *todo.FileStore, libTest *libtest.FileStore, onEvent OnEvent, logger *log.Logger) *Server {
 	if logger == nil {
 		logger = log.Default()
 	}
 	mux := http.NewServeMux()
-	handler := NewHandler(cfg, store, onEvent, logger)
+	handler := NewHandler(cfg, store, libTest, onEvent, logger)
 	path := normalizePath(cfg.Webhook.Path)
 	mux.Handle(path, handler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
