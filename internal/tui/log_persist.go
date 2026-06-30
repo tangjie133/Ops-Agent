@@ -15,6 +15,10 @@ const (
 	logPersistBufSize = 256
 )
 
+type logEntry struct {
+	text string
+}
+
 var (
 	logPersistOnce sync.Once
 	logPersistCh   chan string

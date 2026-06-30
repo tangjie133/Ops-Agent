@@ -52,8 +52,8 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, stor
 	case "/clean", "/clear":
 		return "" // handled in model: clears output before runCommand
 	case "/logs":
-		return fmt.Sprintf("界面日志: %s\n诊断日志: %s\n复制界面日志: Ctrl+Y\n排查卡顿: tail -f 诊断日志（OPS_AGENT_DIAG=0 可关闭）",
-			config.LogFilePath(), config.DiagLogFilePath())
+		return fmt.Sprintf("会话日志: %s\n诊断日志: %s\n复制日志: Ctrl+Y\n查看: tail -f %s",
+			config.LogFilePath(), config.DiagLogFilePath(), config.LogFilePath())
 	default:
 		return fmt.Sprintf("未知命令: %s\n输入 /help 查看可用命令。", cmd)
 	}
@@ -64,7 +64,7 @@ func helpText() string {
   /help              显示帮助
   /status            检查 gh 与 llama-server
   /clean             清空输出区域
-  /logs              界面日志与诊断日志路径（卡顿排查）
+  /logs              日志文件路径（tail -f 或 Ctrl+Y 复制）
   /webhook           打开 Webhook 配置菜单（Issue 入队 · 自动保存）
   /accept            验收配置（与 Issue 独立 · 手动/自动）
   /model             打开模型配置菜单（base_url / model / api_key）
@@ -87,11 +87,10 @@ func helpText() string {
   i            查看选中待办 issue 详情
   p            发布 ready 草稿（semi 确认 / manual）
   d            忽略选中待办
-  Ctrl+L       显示/隐藏日志区
-  Ctrl+Y       复制全部日志到剪贴板
-  鼠标滚轮     在对话/日志区滚动
+  Ctrl+Y       复制 tui.log 到剪贴板
+  鼠标滚轮     在对话区滚动
 
-说明: TUI 全屏模式下无法用鼠标拖选；请 Ctrl+Y 复制日志，或 tail 日志文件。
+说明: 后台日志写入 tui.log；全屏下请 Ctrl+Y 复制或 tail -f 查看。
 
 manual 模式聊天处理待办:
   j/k 选中 → 「分析/处理这条」生成草稿 → 「发布」发帖 → 「忽略」移除

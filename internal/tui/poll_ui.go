@@ -31,12 +31,6 @@ func (m *Model) handleRefreshTick() tea.Cmd {
 		dirty = true
 	}
 
-	logBefore := len(m.log.entries)
-	m.mergeBackgroundLogs()
-	if len(m.log.entries) != logBefore {
-		dirty = true
-	}
-
 	prevTodoSel := m.todoSel
 	m.ensureTodoSelection()
 	m.ensureTestSelection()

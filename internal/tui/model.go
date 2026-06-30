@@ -46,7 +46,6 @@ type Model struct {
 	input          textinput.Model
 	outputViewport viewport.Model
 	outputContent  string
-	log            logPanel
 	width          int
 	height         int
 
@@ -126,7 +125,6 @@ func NewModel(cfg *config.Config, store *todo.FileStore, libTestStore *libtest.F
 		whRuntime:      wh,
 		input:          ti,
 		outputViewport: viewport.New(60, 8),
-		log:            newLogPanel(),
 	}
 	m.syncOutputViewport(true)
 	m.ensureTodoSelection()
@@ -256,9 +254,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-		case "ctrl+l":
-			m.toggleLogPanel()
-			return m, nil
 		case "ctrl+y":
 			if n, err := m.copyLogsToClipboard(); err != nil {
 				m.appendOutput("复制日志失败: " + err.Error())
@@ -418,8 +413,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.appendOutput(strings.Join(wh, " · "))
 		}
 		m.appendOutput("输入 /help 查看命令 · /webhook /accept /model /proxy 配置")
+		m.appendOutput("后台日志: " + config.LogFilePath() + "（Ctrl+Y 复制 · tail -f 查看）")
 		m.appendOutput("强制退出: 连按两次 Ctrl+C，或另开终端 make kill")
-		m.appendOutput("UI 轮询 store/日志（500ms）；Webhook 不推送 TUI，详见 tui.log")
 		if diagEnabled() {
 			m.appendOutput("诊断日志: " + config.DiagLogFilePath() + "（卡顿时 tail -f）")
 		}
@@ -548,17 +543,6 @@ func (m *Model) syncOutputViewport(stickBottom bool) {
 }
 
 func (m *Model) handleMouseScroll(msg tea.MouseMsg) bool {
-	if m.isInLogArea(msg.Y) {
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			m.log.viewport.LineUp(3)
-			return true
-		case tea.MouseButtonWheelDown:
-			m.log.viewport.LineDown(3)
-			return true
-		}
-		return false
-	}
 	if !m.isInOutputArea(msg.Y) {
 		return false
 	}
@@ -573,15 +557,6 @@ func (m *Model) handleMouseScroll(msg tea.MouseMsg) bool {
 	return false
 }
 
-func (m *Model) isInOutputArea(y int) bool {
-	if m.height == 0 {
-		return true
-	}
-	top := m.chatAreaTop()
-	bottom := m.chatAreaBottom()
-	return y >= top && y < bottom
-}
-
 func (m *Model) layout() {
 	if m.width == 0 || m.height == 0 {
 		return
@@ -592,16 +567,8 @@ func (m *Model) layout() {
 		outW = 10
 	}
 
-	chatH := m.chatHeight()
-	logH := m.logHeight()
-
 	m.outputViewport.Width = outW
-	m.outputViewport.Height = chatH
-
-	m.log.viewport.Width = outW
-	m.log.viewport.Height = max(3, logH)
-	m.syncLogViewport(m.log.viewport.AtBottom())
-
+	m.outputViewport.Height = m.chatHeight()
 	m.input.Width = max(20, m.width-6)
 	m.syncOutputViewport(m.outputViewport.AtBottom())
 	m.markDirty()
@@ -670,10 +637,6 @@ func (m *Model) renderBody() string {
 
 	var right strings.Builder
 	right.WriteString(chatView)
-	if section := m.renderLogSection(outW); section != "" {
-		right.WriteString("\n")
-		right.WriteString(section)
-	}
 
 	if outW >= 20 && m.width > todoW+4 {
 		left := m.renderLeftColumn()
@@ -737,7 +700,7 @@ func (m *Model) renderFooter() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(styleHelp.Render("[/] 待办/验收 · j/k 移动 · v 查看报告 · Enter 验收"))
+	b.WriteString(styleHelp.Render("[/] 待办/验收 · j/k 移动 · Ctrl+Y 复制日志"))
 	return b.String()
 }
 
@@ -775,7 +738,7 @@ func (m *Model) View() string {
 	start := time.Now()
 	defer func() {
 		if d := time.Since(start); d >= diagSlowView {
-			recordViewSlow(d, len(m.log.entries), len(m.outputContent))
+			recordViewSlow(d, 0, len(m.outputContent))
 		}
 	}()
 	view := m.renderHeaderCached() + m.renderBody() + m.renderFooter()

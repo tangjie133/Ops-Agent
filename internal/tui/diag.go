@@ -245,8 +245,8 @@ func emitDiagSnapshot(m *Model) {
 	b.WriteString(fmt.Sprintf(" updates=%d update_slow=%d view_slow=%d persist_drop=%d",
 		diagUpdateTotal.Load(), diagUpdateSlow.Load(), diagViewSlow.Load(), diagPersistDrop.Load()))
 	b.WriteString(formatMsgHistTop(6))
-	b.WriteString(fmt.Sprintf(" log_entries=%d output_bytes=%d spinner=%v todos=%d libtests=%d",
-		len(m.log.entries), len(m.outputContent), m.spinnerActive, m.store.ActiveCount(), len(m.activeLibTests())))
+	b.WriteString(fmt.Sprintf(" log_file=%s output_bytes=%d spinner=%v todos=%d libtests=%d",
+		config.LogFilePath(), len(m.outputContent), m.spinnerActive, m.store.ActiveCount(), len(m.activeLibTests())))
 	queueDiag(b.String())
 }
 
