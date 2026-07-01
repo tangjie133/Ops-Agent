@@ -1,5 +1,7 @@
 package tui
 
+// ai_menu.go — /model、/ai 模型连接配置菜单。
+
 import (
 	"context"
 	"fmt"

@@ -1,5 +1,7 @@
 package investigator
 
+// investigator.go — Issue 多轮 Agent 分析器入口（AnalyzeIssue）。
+
 import (
 	"context"
 	"fmt"

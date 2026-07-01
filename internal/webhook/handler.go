@@ -1,5 +1,7 @@
 package webhook
 
+// handler.go — GitHub Webhook HTTP 处理：签名校验、事件分发、入队待办/验收。
+
 import (
 	"encoding/json"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
+// Handler 处理 GitHub Webhook HTTP 请求，解析事件并更新待办/验收队列。
 type Handler struct {
 	cfg            *config.Config
 	store          *todo.FileStore
@@ -41,6 +44,7 @@ func (h *Handler) emit(evt Event) {
 	}
 }
 
+// ServeHTTP 实现 http.Handler：校验签名、解析 payload、分发 issue/libtest 事件。
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

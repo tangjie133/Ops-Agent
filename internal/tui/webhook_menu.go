@@ -1,5 +1,6 @@
 package tui
 
+// webhook_menu.go — /webhook 配置菜单与子菜单渲染。
 import (
 	"fmt"
 	"strings"

@@ -1,3 +1,9 @@
+// Ops-Agent 主程序入口。
+//
+// 运行模式（按优先级）：
+//  1. OPS_AGENT_WEBHOOK_ONLY=1 — 仅启动 Webhook 服务（无 TUI）
+//  2. 非 TTY / CI 环境 — headless 模式（PR 检测等）
+//  3. 默认 — 交互式 TUI
 package main
 
 import (
@@ -11,6 +17,7 @@ import (
 )
 
 func main() {
+	// 加载 ~/.config/ops-agent/config.yaml（或环境变量指定路径）
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)

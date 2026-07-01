@@ -1,5 +1,7 @@
 package tui
 
+// investigator_log.go — Investigator 阶段状态与日志 sink（轮询读入 UI，不 flooding Post）。
+
 import (
 	"strings"
 	"sync"

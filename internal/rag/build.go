@@ -1,5 +1,7 @@
 package rag
 
+// build.go — 从知识库目录构建/更新 BM25 索引。
+
 import (
 	"fmt"
 	"os"

@@ -1,5 +1,7 @@
 package agent
 
+// agent.go — TUI 自然语言助手：聊天、manual 模式待办操作。
+
 import (
 	"context"
 	"fmt"

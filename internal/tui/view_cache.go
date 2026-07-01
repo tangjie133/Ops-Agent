@@ -1,5 +1,6 @@
 package tui
 
+// view_cache.go — View 输出缓存与 cwd 节流，避免每帧 lipgloss 重绘与 Getwd。
 import (
 	"os"
 	"strings"

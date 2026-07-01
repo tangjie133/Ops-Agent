@@ -1,5 +1,7 @@
 package ai
 
+// client.go — OpenAI 兼容 chat/completions HTTP 客户端。
+
 import (
 	"bytes"
 	"context"
@@ -15,12 +17,14 @@ import (
 
 const defaultTimeout = 120 * time.Second
 
+// Client 调用配置的 BaseURL + Model 进行对话补全。
 type Client struct {
 	cfg    config.AIConfig
 	http   *http.Client
 	apiURL string
 }
 
+// NewClient 根据 AIConfig 构造 HTTP 客户端。
 func NewClient(cfg config.AIConfig) *Client {
 	return &Client{
 		cfg: cfg,

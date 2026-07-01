@@ -1,5 +1,7 @@
 package agent
 
+// manual.go — manual 模式下自然语言意图解析（分析/发布/忽略待办等）。
+
 import (
 	"fmt"
 	"regexp"

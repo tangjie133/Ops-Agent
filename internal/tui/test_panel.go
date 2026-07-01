@@ -1,5 +1,7 @@
 package tui
 
+// test_panel.go — 左侧验收列表渲染与 [ ] 切换。
+
 import (
 	"fmt"
 	"strings"

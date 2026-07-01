@@ -1,5 +1,7 @@
 package tui
 
+// mode_menu.go — /mode 自动化模式选择菜单（manual/semi/full）。
+
 import (
 	"fmt"
 	"strings"

@@ -1,5 +1,7 @@
 package tui
 
+// webhook_conn_edit.go — Webhook 连接字段（listen/path/secret 等）的内联编辑。
+
 import (
 	"fmt"
 	"strings"

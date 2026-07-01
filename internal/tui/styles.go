@@ -1,5 +1,7 @@
 package tui
 
+// styles.go — lipgloss 颜色与面板样式定义。
+
 import "github.com/charmbracelet/lipgloss"
 
 var (

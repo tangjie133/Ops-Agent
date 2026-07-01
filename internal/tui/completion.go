@@ -1,5 +1,7 @@
 package tui
 
+// completion.go — 斜杠命令与待办编号的 Tab 补全。
+
 import (
 	"fmt"
 	"strings"
@@ -7,6 +9,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
+// Completion 表示一条 Tab 补全候选（整行文本 + 提示）。
 type Completion struct {
 	Text string // 补全后的整行输入
 	Hint string // 说明文字

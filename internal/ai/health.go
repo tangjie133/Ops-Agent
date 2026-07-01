@@ -1,5 +1,7 @@
 package ai
 
+// health.go — 探测 AI BaseURL 是否可达（/models 或 HEAD）。
+
 import (
 	"context"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 )
 
+// Health AI 服务健康检查结果。
 type Health struct {
 	Reachable bool
 	Message   string

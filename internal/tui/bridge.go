@@ -1,5 +1,7 @@
 package tui
 
+// bridge.go — 后台 goroutine 与 bubbletea 之间的有界消息桥，避免 p.Send 阻塞。
+
 import (
 	"sync/atomic"
 	"time"

@@ -1,5 +1,6 @@
 package tui
 
+// libtest_ui.go — 库验收 Worker 的 tick/done 消息处理（注意勿重复调度 tick）。
 import (
 	"fmt"
 	"time"
@@ -85,13 +86,21 @@ func (m *Model) handleLibTestDone(msg libTestDoneMsg) tea.Cmd {
 		m.appendLogKind(logKindWorker, fmt.Sprintf("验收: %s %s@%s", st, msg.item.Repo, msg.item.Ref))
 	}
 	m.ensureTestSelection()
-	return m.libTestTickCmd()
+	return nil
+}
+
+func (m *Model) hasPendingLibTest() bool {
+	for _, it := range m.activeLibTests() {
+		if it.Status == libtest.StatusPending {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) handleLibTestTick() tea.Cmd {
-	cmds := []tea.Cmd{m.libTestTickCmd()}
-	if m.cfg != nil && m.cfg.LibTest.Enabled && m.cfg.LibTest.AutoRun && !m.libTestBusy {
-		cmds = append(cmds, m.runLibTestCmd())
+	if m.cfg != nil && m.cfg.LibTest.Enabled && m.cfg.LibTest.AutoRun && !m.libTestBusy && m.hasPendingLibTest() {
+		return tea.Batch(m.libTestTickCmd(), m.runLibTestCmd())
 	}
-	return tea.Batch(cmds...)
+	return m.libTestTickCmd()
 }

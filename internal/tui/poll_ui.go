@@ -1,5 +1,6 @@
 package tui
 
+// poll_ui.go — 500ms 轮询 tick：按 mtime 重载 store、合并 Investigator 状态、驱动 spinner。
 import (
 	"time"
 

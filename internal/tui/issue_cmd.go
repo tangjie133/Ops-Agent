@@ -1,5 +1,7 @@
 package tui
 
+// issue_cmd.go — /issue 命令参数解析与仓库反查。
+
 import (
 	"fmt"
 	"strconv"

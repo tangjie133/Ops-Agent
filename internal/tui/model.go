@@ -1,5 +1,7 @@
 package tui
 
+// model.go — Bubble Tea 根模型：输入、输出 viewport、菜单状态与 Update/View 主逻辑。
+
 import (
 	"context"
 	"fmt"
@@ -37,6 +39,7 @@ type webhookStartedMsg struct {
 	err error
 }
 
+// Model 是 Bubble Tea 的根模型，持有 UI 状态并处理所有 tea.Msg。
 type Model struct {
 	cfg            *config.Config
 	gh             *github.Client
@@ -49,15 +52,15 @@ type Model struct {
 	width          int
 	height         int
 
-	ghOK   bool
+	ghOK   bool // GitHub CLI 是否就绪
 	ghWarn string
-	aiOK   bool
+	aiOK   bool // llama-server / AI 是否可达
 	aiWarn string
 	repo   string
 
 	todoSel int
 	testSel int
-	leftFocus leftPanelFocus
+	leftFocus leftPanelFocus // 左栏焦点：待办 或 验收
 	spinnerFrame int
 	spinnerActive bool
 	ready   bool
@@ -99,16 +102,17 @@ type Model struct {
 	invLogSink *investigatorLogSink
 	invStatus  string
 
-	workerBusy  bool
+	workerBusy  bool // 主线程设置，防止 Worker 重入
 	libTestBusy bool
 
-	runCtx context.Context
+	runCtx context.Context // 退出时 cancel，终止后台 tea.Cmd
 
 	investigatorLogFn func(string)
 
-	viewCache viewCacheState
+	viewCache viewCacheState // View 输出缓存，减轻 lipgloss 重绘
 }
 
+// NewModel 构造 TUI 初始状态（尺寸在 WindowSizeMsg 后 layout）。
 func NewModel(cfg *config.Config, store *todo.FileStore, libTestStore *libtest.FileStore, wh *WebhookRuntime) Model {
 	ti := textinput.New()
 	ti.Placeholder = "ask a question, or describe a task  (/help)"
@@ -140,6 +144,7 @@ func (m *Model) bgCtx() context.Context {
 }
 
 func (m *Model) Init() tea.Cmd {
+	// 并行启动：自检、Webhook、UI 轮询 tick、Worker/LibTest/诊断 tick
 	cmds := []tea.Cmd{
 		m.runStartup(),
 		m.startWebhookCmd(),
@@ -247,8 +252,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.acceptMenuOpen {
-			if m.handleAcceptMenuKey(msg.String()) {
-				return m, textinput.Blink
+			if handled, cmd := m.handleAcceptMenuKey(msg.String()); handled {
+				return m, cmd
 			}
 			return m, nil
 		}
@@ -374,7 +379,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if isAcceptMenuCommand(line) {
 				m.openAcceptMenu()
-				return m, textinput.Blink
+				return m, nil
 			}
 			if !strings.HasPrefix(line, "/") {
 				return m, m.runAgentChat(line)
@@ -433,7 +438,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case workerTickMsg:
 		cmds := []tea.Cmd{m.workerTickCmd()}
-		if !m.workerBusy && m.cfg.IssueAutomation.Mode != config.ModeManual && m.aiOK && m.cfg.IssueAutomation.AutoAnalyze {
+		if !m.workerBusy && m.cfg.IssueAutomation.Mode != config.ModeManual && m.aiOK && m.cfg.IssueAutomation.AutoAnalyze && m.hasWorkerWork() {
 			cmds = append(cmds, m.runWorkerCmd())
 		}
 		return m, tea.Batch(cmds...)

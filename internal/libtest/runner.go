@@ -1,5 +1,7 @@
 package libtest
 
+// runner.go — 克隆仓库到 workspace 并执行格式规范与 demo 检测。
+
 import (
 	"context"
 	"fmt"

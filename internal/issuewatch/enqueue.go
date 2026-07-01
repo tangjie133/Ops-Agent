@@ -1,5 +1,7 @@
 package issuewatch
 
+// enqueue.go — Webhook 触发时将匹配的 Issue 写入待办队列。
+
 import (
 	"fmt"
 

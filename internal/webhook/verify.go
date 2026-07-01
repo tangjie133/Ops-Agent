@@ -1,5 +1,7 @@
 package webhook
 
+// verify.go — GitHub Webhook HMAC-SHA256 签名校验。
+
 import (
 	"crypto/hmac"
 	"crypto/sha256"

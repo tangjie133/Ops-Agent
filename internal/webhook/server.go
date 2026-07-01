@@ -1,5 +1,7 @@
 package webhook
 
+// server.go — 本地 HTTP Webhook 服务与 /healthz 探针。
+
 import (
 	"context"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
+// Server 封装 webhook HTTP 监听与 graceful shutdown。
 type Server struct {
 	cfg    *config.Config
 	http   *http.Server
@@ -20,6 +23,7 @@ type Server struct {
 	logger *log.Logger
 }
 
+// NewServer 构建 mux：Webhook 路径 + /healthz。
 func NewServer(cfg *config.Config, store *todo.FileStore, libTest *libtest.FileStore, onEvent OnEvent, logger *log.Logger) *Server {
 	if logger == nil {
 		logger = log.Default()

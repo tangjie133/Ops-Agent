@@ -1,5 +1,7 @@
 package worker
 
+// worker.go — Issue 自动化 Worker：取 in_todo 条目、Investigator 分析、可选自动发帖。
+
 import (
 	"context"
 	"errors"
@@ -25,6 +27,7 @@ type Poster interface {
 	IssueComment(ctx context.Context, repo string, num int, body string) error
 }
 
+// Worker 从待办队列取 in_todo 条目，调用 Investigator 分析并可选自动发帖。
 type Worker struct {
 	cfg      *config.Config
 	store    *todo.FileStore
@@ -32,15 +35,17 @@ type Worker struct {
 	poster   Poster
 	invLog   investigator.Logger
 
-	mu           sync.Mutex
-	hourWindow   time.Time
-	hourPosted   int
+	mu         sync.Mutex
+	hourWindow time.Time // 每小时评论计数窗口起点
+	hourPosted int       // 当前窗口内已发评论数
 }
 
+// SetInvestigatorLog 注入调查日志回调（写入 tui.log，不在 TUI 面板展示）。
 func (w *Worker) SetInvestigatorLog(log investigator.Logger) {
 	w.invLog = log
 }
 
+// New 使用默认 AI 分析器与 gh 客户端构造 Worker。
 func New(cfg *config.Config, store *todo.FileStore, gh *github.Client) *Worker {
 	return &Worker{
 		cfg:      cfg,
@@ -91,9 +96,9 @@ type Result struct {
 	Repo     string
 	Number   int
 	Title    string
-	Draft    string
-	Posted   bool
-	Ready    bool
+	Draft    string // 分析生成的评论正文
+	Posted   bool   // full 模式下是否已自动发布
+	Ready    bool   // semi 模式下草稿是否就绪
 	Failed   bool
 	ErrMsg   string
 }

@@ -1,5 +1,7 @@
 package issuewatch
 
+// sync.go — Issue 关闭/重开时同步待办状态。
+
 import (
 	"fmt"
 

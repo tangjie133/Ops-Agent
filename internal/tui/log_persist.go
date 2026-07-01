@@ -1,5 +1,7 @@
 package tui
 
+// log_persist.go — 异步将日志行追加写入 ~/.local/share/ops-agent/logs/tui.log。
+
 import (
 	"fmt"
 	"os"

@@ -1,5 +1,6 @@
 package tui
 
+// signals.go — SIGINT 双次退出与 runCtx 取消，避免 bubbletea 事件队列阻塞时无法退出。
 import (
 	"os"
 	"os/signal"

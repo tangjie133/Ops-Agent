@@ -1,5 +1,6 @@
 package tui
 
+// diag.go — TUI 性能诊断：消息计数、慢 Update/View 日志，写入 tui-diag.log。
 import (
 	"fmt"
 	"os"

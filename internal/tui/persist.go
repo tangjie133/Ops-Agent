@@ -1,5 +1,7 @@
 package tui
 
+// persist.go — 菜单修改后调用 config.Save 持久化。
+
 import "github.com/ZzedJay/Ops-Agent/internal/config"
 
 // persistConfig 将当前配置写入磁盘。

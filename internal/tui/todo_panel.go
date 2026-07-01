@@ -1,5 +1,7 @@
 package tui
 
+// todo_panel.go — 左侧待办列表渲染与键盘导航（[ ] 切换状态等）。
+
 import (
 	"fmt"
 	"strings"

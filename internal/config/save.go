@@ -1,5 +1,7 @@
 package config
 
+// save.go — 配置读写路径与 YAML 持久化。
+
 import (
 	"fmt"
 	"os"
@@ -28,6 +30,7 @@ func SavePath() string {
 	return local
 }
 
+// Save 将配置写入 SavePath() 指向的 YAML 文件。
 func Save(cfg *Config) (string, error) {
 	path := SavePath()
 	dir := filepath.Dir(path)

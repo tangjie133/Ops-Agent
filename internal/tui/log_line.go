@@ -1,5 +1,7 @@
 package tui
 
+// log_line.go — NewUILogger：Webhook 等组件的日志 writer，写入 tui.log。
+
 import (
 	"log"
 	"strings"

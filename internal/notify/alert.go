@@ -1,5 +1,7 @@
 package notify
 
+// alert.go — 失败/就绪等告警的结构化消息与 Notifier 接口。
+
 import (
 	"context"
 	"fmt"

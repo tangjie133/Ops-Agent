@@ -1,5 +1,7 @@
 package todo
 
+// store.go — 待办队列 JSON 持久化、状态流转与 mtime 轮询重载。
+
 import (
 	"encoding/json"
 	"fmt"
@@ -10,18 +12,20 @@ import (
 	"time"
 )
 
+// Status 表示待办条目在 Issue 自动化流程中的阶段。
 type Status string
 
 const (
-	StatusInTodo    Status = "in_todo"
-	StatusAnalyzing Status = "analyzing"
-	StatusReady     Status = "ready"
-	StatusPosted    Status = "posted"
-	StatusDone      Status = "done"
-	StatusDismissed Status = "dismissed"
-	StatusFailed    Status = "failed"
+	StatusInTodo    Status = "in_todo"    // 等待 Worker 分析
+	StatusAnalyzing Status = "analyzing"  // Investigator 正在分析
+	StatusReady     Status = "ready"      // 草稿就绪，等待用户确认发布（semi）
+	StatusPosted    Status = "posted"     // 评论已发布
+	StatusDone      Status = "done"       // 流程结束
+	StatusDismissed Status = "dismissed"  // 用户忽略
+	StatusFailed    Status = "failed"     // 分析或发布失败
 )
 
+// Item 对应一条 GitHub Issue 待办及其分析草稿。
 type Item struct {
 	Repo      string    `json:"repo"`
 	Number    int       `json:"number"`
@@ -34,6 +38,7 @@ type Item struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// FileStore 基于 JSON 文件的待办持久化；Webhook/Worker/TUI 共用，带读写锁。
 type FileStore struct {
 	path       string
 	mu         sync.RWMutex
@@ -41,10 +46,12 @@ type FileStore struct {
 	lastReload time.Time
 }
 
+// Key 生成待办唯一键 owner/repo#number。
 func Key(repo string, num int) string {
 	return fmt.Sprintf("%s#%d", repo, num)
 }
 
+// Load 从磁盘加载待办 store；文件不存在时返回空 store。
 func Load(path string) (*FileStore, error) {
 	s := &FileStore{
 		path:  path,

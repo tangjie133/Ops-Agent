@@ -1,5 +1,7 @@
 package github
 
+// client.go — 通过 gh CLI 访问 GitHub（Issue、PR、评论、鉴权等），支持 HTTP 代理。
+
 import (
 	"context"
 	"encoding/json"
@@ -11,6 +13,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/netproxy"
 )
 
+// AuthStatus 表示 gh auth status 解析结果。
 type AuthStatus struct {
 	LoggedIn bool
 	Host     string
@@ -18,6 +21,7 @@ type AuthStatus struct {
 	Raw      string
 }
 
+// Issue 对应 gh issue view --json 的结构。
 type Issue struct {
 	Number    int            `json:"number"`
 	Title     string         `json:"title"`
@@ -53,6 +57,7 @@ type StatusCheckRollup struct {
 	Contexts []CheckContext `json:"contexts"`
 }
 
+// PullRequest 对应 gh pr view --json 的结构。
 type PullRequest struct {
 	Number             int               `json:"number"`
 	Title              string            `json:"title"`
@@ -77,6 +82,7 @@ type IssueListOpts struct {
 	Limit  int
 }
 
+// Client 封装 GitHub CLI（gh）子进程调用，支持代理环境。
 type Client struct {
 	proxy config.ProxyConfig
 }
@@ -85,6 +91,7 @@ func NewClient() *Client {
 	return &Client{}
 }
 
+// NewClientWithProxy 创建带代理配置的 gh 客户端。
 func NewClientWithProxy(proxy config.ProxyConfig) *Client {
 	proxy.Normalize()
 	return &Client{proxy: proxy}

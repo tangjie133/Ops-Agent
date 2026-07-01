@@ -1,5 +1,7 @@
 package config
 
+// config.go — 根配置结构、默认值、Load 与路径解析。
+
 import (
 	"fmt"
 	"os"
@@ -11,11 +13,12 @@ import (
 )
 
 const (
-	ModeManual = "manual"
-	ModeSemi   = "semi"
-	ModeFull   = "full"
+	ModeManual = "manual" // 手动：仅聊天触发分析/发布
+	ModeSemi   = "semi"   // 半自动：Worker 分析，用户确认后发布
+	ModeFull   = "full"   // 全自动：分析通过后自动发帖
 )
 
+// Config 是 ops-agent 的根配置，对应 config.yaml。
 type Config struct {
 	IssueWatch      IssueWatchConfig      `yaml:"issue_watch"`
 	Webhook         WebhookConfig         `yaml:"webhook"`
@@ -36,18 +39,20 @@ type IssueWatchConfig struct {
 }
 
 type WebhookConfig struct {
-	Enabled   bool                `yaml:"enabled"`
-	Listen    string              `yaml:"listen"`
-	Path      string              `yaml:"path"`
-	Secret    string              `yaml:"secret"`
+	Enabled   bool                `yaml:"enabled"`    // 是否启动本地 webhook HTTP 服务
+	Listen    string              `yaml:"listen"`     // 监听地址，如 127.0.0.1:8765
+	Path      string              `yaml:"path"`       // HTTP 路径
+	Secret    string              `yaml:"secret"`     // GitHub HMAC 密钥；空则跳过校验（本地调试）
 	PublicURL string              `yaml:"public_url"` // GitHub Payload URL（smee.io 频道等）
 	Tunnel    WebhookTunnelConfig `yaml:"tunnel"`
 }
 
+// TodoConfig 待办队列容量限制。
 type TodoConfig struct {
 	MaxItems int `yaml:"max_items"`
 }
 
+// IssueAutomationConfig Issue 分析与回复的自动化策略。
 type IssueAutomationConfig struct {
 	Mode               string          `yaml:"mode"`
 	AutoAnalyze        bool            `yaml:"auto_analyze"`
@@ -74,13 +79,13 @@ type ChannelConfig struct {
 }
 
 type AIConfig struct {
-	Provider     string              `yaml:"provider"`
+	Provider     string              `yaml:"provider"` // openai 兼容
 	BaseURL      string              `yaml:"base_url"`
 	Model        string              `yaml:"model"`
 	APIKey       string              `yaml:"api_key"`
-	Investigator InvestigatorConfig  `yaml:"investigator"`
-	RepoContext  RepoContextConfig   `yaml:"repo_context"`
-	RAG          RAGConfig           `yaml:"rag"`
+	Investigator InvestigatorConfig  `yaml:"investigator"` // Agent 循环参数
+	RepoContext  RepoContextConfig   `yaml:"repo_context"` // 克隆/符号索引
+	RAG          RAGConfig           `yaml:"rag"`          // 本地知识库
 }
 
 func (c *AIConfig) normalize() {
@@ -90,9 +95,10 @@ func (c *AIConfig) normalize() {
 }
 
 type CIConfig struct {
-	PRCheckOnEvents []string `yaml:"pr_check_on_events"`
+	PRCheckOnEvents []string `yaml:"pr_check_on_events"` // headless 模式下触发 PR 检测的事件
 }
 
+// Default 返回内置默认配置（首次运行或缺省字段时使用）。
 func Default() *Config {
 	return &Config{
 		IssueWatch: IssueWatchConfig{

@@ -1,7 +1,10 @@
 package webhook
 
+// payload.go — GitHub Webhook JSON 事件体的 Go 结构映射。
+
 import "github.com/ZzedJay/Ops-Agent/internal/github"
 
+// IssuesEvent GitHub issues 事件 payload。
 type IssuesEvent struct {
 	Action     string     `json:"action"`
 	Issue      Issue      `json:"issue"`

@@ -1,5 +1,6 @@
 package tui
 
+// worker_ui.go — Issue Worker 的 tea.Cmd 封装与 TUI 交互（确认发布菜单等）。
 import (
 	"context"
 	"errors"
@@ -64,7 +65,7 @@ func (m *Model) handleWorkerDone(msg workerDoneMsg) tea.Cmd {
 			m.appendLogKind(logKindError, "Worker: "+msg.err.Error())
 		}
 		m.ensureTodoSelection()
-		return m.workerTickCmd()
+		return nil
 	}
 	if text := worker.FormatResult(msg.result); text != "" {
 		m.appendLogKind(logKindWorker, text)
@@ -72,14 +73,23 @@ func (m *Model) handleWorkerDone(msg workerDoneMsg) tea.Cmd {
 			m.ensureTodoSelection()
 		}
 	}
-	return m.workerTickCmd()
+	return nil
 }
 
 func (m *Model) triggerWorkerIfNeeded() tea.Cmd {
-	if m.workerBusy || m.cfg.IssueAutomation.Mode == config.ModeManual || !m.aiOK {
+	if m.workerBusy || m.cfg.IssueAutomation.Mode == config.ModeManual || !m.aiOK || !m.hasWorkerWork() {
 		return nil
 	}
 	return m.runWorkerCmd()
+}
+
+func (m *Model) hasWorkerWork() bool {
+	for _, it := range m.store.List() {
+		if it.Status == todo.StatusInTodo {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) postDraft(repo string, num int) tea.Cmd {

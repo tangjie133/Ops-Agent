@@ -1,5 +1,7 @@
 package investigator
 
+// loop.go — 多轮 Agent 主循环：LLM 调用、工具执行与步进观察。
+
 import (
 	"context"
 	"fmt"

@@ -1,5 +1,7 @@
 package tui
 
+// run.go — TUI 入口：加载 store、启动 Webhook 运行时与 bubbletea Program。
+
 import (
 	"context"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
+// Run 启动 TUI 主循环：加载 store、初始化 Webhook 运行时、进入 bubbletea Program。
 func Run(cfg *config.Config) error {
 	store, err := todo.Load(config.TodoStorePath())
 	if err != nil {

@@ -1,5 +1,7 @@
 package tui
 
+// proxy_menu.go — /proxy 网络代理配置菜单与连通性测试。
+
 import (
 	"context"
 	"fmt"

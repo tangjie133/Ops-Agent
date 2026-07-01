@@ -1,5 +1,7 @@
 package tui
 
+// commands.go — 斜杠命令（/help、/status 等）的执行逻辑。
+
 import (
 	"context"
 	"fmt"

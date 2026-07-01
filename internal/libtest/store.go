@@ -1,5 +1,7 @@
 package libtest
 
+// store.go — 库验收队列 JSON 持久化与状态流转。
+
 import (
 	"encoding/json"
 	"fmt"
@@ -10,14 +12,15 @@ import (
 	"time"
 )
 
+// Status 表示库验收条目的生命周期阶段。
 type Status string
 
 const (
-	StatusPending   Status = "pending"
-	StatusChecking  Status = "checking"
-	StatusPass      Status = "pass"
-	StatusFail      Status = "fail"
-	StatusDismissed Status = "dismissed"
+	StatusPending   Status = "pending"   // 等待验收 Worker
+	StatusChecking  Status = "checking"  // 正在 clone/测试
+	StatusPass      Status = "pass"      // 验收通过
+	StatusFail      Status = "fail"      // 验收失败
+	StatusDismissed Status = "dismissed" // 用户忽略
 )
 
 // Item 待验收库（整仓，非 Issue）。
@@ -33,6 +36,7 @@ type Item struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Key 生成 repo@ref 唯一键；ref 空时默认为 HEAD。
 func Key(repo, ref string) string {
 	if ref == "" {
 		ref = "HEAD"
@@ -40,6 +44,7 @@ func Key(repo, ref string) string {
 	return fmt.Sprintf("%s@%s", repo, ref)
 }
 
+// FileStore 基于 JSON 的验收队列持久化；Webhook/LibTest Worker/TUI 共用。
 type FileStore struct {
 	path       string
 	mu         sync.RWMutex
@@ -47,6 +52,7 @@ type FileStore struct {
 	lastReload time.Time
 }
 
+// Load 从磁盘加载验收队列；文件不存在时返回空 store。
 func Load(path string) (*FileStore, error) {
 	s := &FileStore{path: path, items: make(map[string]Item)}
 	data, err := os.ReadFile(path)

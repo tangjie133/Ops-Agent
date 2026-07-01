@@ -1,5 +1,7 @@
 package investigator
 
+// tools.go — Investigator 工具箱：grep、RAG 检索、URL 抓取、格式校验等。
+
 import (
 	"context"
 	"fmt"

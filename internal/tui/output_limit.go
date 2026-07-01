@@ -1,5 +1,7 @@
 package tui
 
+// output_limit.go — 输出区与日志展示的字节/字符截断，防止 viewport 过大。
+
 import "strings"
 
 const maxOutputBytes = 48 * 1024

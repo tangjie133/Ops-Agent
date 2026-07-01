@@ -1,5 +1,7 @@
 package smee
 
+// client.go — smee.io SSE 客户端：订阅公网频道并转发 webhook 到本地。
+
 import (
 	"bufio"
 	"bytes"

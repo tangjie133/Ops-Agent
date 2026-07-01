@@ -1,5 +1,6 @@
 package tui
 
+// log_panel.go — 日志写入 tui.log、Ctrl+Y 复制；界面布局高度计算（已无内嵌日志面板）。
 import (
 	"fmt"
 	"os"

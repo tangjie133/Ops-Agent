@@ -1,5 +1,7 @@
 package headless
 
+// run.go — 非 TTY / CI 环境下的 headless 入口（PR 检测等）。
+
 import (
 	"os"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 )
 
+// ShouldRun 判断是否应跳过 TUI（CI 或非终端 stdout）。
 func ShouldRun() bool {
 	if os.Getenv("OPS_AGENT_CI") == "1" {
 		return true
@@ -18,6 +21,7 @@ func ShouldRun() bool {
 	return !term.IsTerminal(int(os.Stdout.Fd()))
 }
 
+// Run 执行 headless 主流程并返回退出码。
 func Run(cfg *config.Config) int {
 	return runPRCheck(cfg)
 }

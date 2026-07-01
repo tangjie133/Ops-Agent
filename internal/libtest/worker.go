@@ -1,5 +1,7 @@
 package libtest
 
+// worker.go — 自动验收 Worker：从 pending 队列取项并执行 runner。
+
 import (
 	"context"
 
