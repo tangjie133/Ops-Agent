@@ -52,6 +52,7 @@ func (m *Model) runLibTestCmd() tea.Cmd {
 }
 
 func (m *Model) runSelectedLibTest() tea.Cmd {
+	m.captureTestAnchor()
 	active := m.activeLibTests()
 	if m.testSel < 0 || m.testSel >= len(active) {
 		return nil

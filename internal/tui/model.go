@@ -60,6 +60,10 @@ type Model struct {
 
 	todoSel int
 	testSel int
+	todoAnchorRepo string // 待办选中锚点（列表重排后仍指向同一 Issue）
+	todoAnchorNum  int
+	testAnchorRepo string // 验收选中锚点
+	testAnchorRef  string
 	leftFocus leftPanelFocus // 左栏焦点：待办 或 验收
 	spinnerFrame int
 	spinnerActive bool
@@ -614,8 +618,13 @@ func (m *Model) renderTodoPanel() string {
 		maxLines = 5
 	}
 	lineWidth := m.todoPanelWidth() - 2
+	start := panelScrollStart(m.todoSel, len(active), maxLines)
 	var lines []string
-	for i, it := range active {
+	if start > 0 {
+		lines = append(lines, styleTodoItem.Render(fmt.Sprintf("  …+%d ↑", start)))
+	}
+	for i := start; i < len(active); i++ {
+		it := active[i]
 		entry := formatTodoEntry(it, lineWidth, i == m.todoSel, m.spinnerFrame)
 		if len(lines)+len(entry) > maxLines {
 			remaining := len(active) - i

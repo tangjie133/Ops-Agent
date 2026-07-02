@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
@@ -32,6 +33,43 @@ func TestFormatTodoEntry(t *testing.T) {
 	}
 	if lines[0][0] != '>' {
 		t.Fatalf("selected marker missing: %q", lines[0])
+	}
+}
+
+func TestEnsureTodoSelectionKeepsAnchorAfterReorder(t *testing.T) {
+	store, err := todo.Load(t.TempDir() + "/todo.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Add(-time.Hour)
+	items := []todo.Item{
+		{Repo: "o/a", Number: 1, Title: "A", Status: todo.StatusInTodo, CreatedAt: base, UpdatedAt: base},
+		{Repo: "o/b", Number: 2, Title: "B", Status: todo.StatusInTodo, CreatedAt: base.Add(time.Minute), UpdatedAt: base.Add(time.Minute)},
+		{Repo: "o/c", Number: 3, Title: "C", Status: todo.StatusInTodo, CreatedAt: base.Add(2 * time.Minute), UpdatedAt: base.Add(2 * time.Minute)},
+	}
+	for _, it := range items {
+		if err := store.Upsert(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := Model{store: store, todoSel: 2}
+	m.captureTodoAnchor()
+	if m.todoAnchorRepo != "o/c" || m.todoAnchorNum != 3 {
+		t.Fatalf("anchor=%s#%d", m.todoAnchorRepo, m.todoAnchorNum)
+	}
+
+	// 分析只更新 UpdatedAt，列表仍按 CreatedAt 入队顺序，位置不变。
+	if err := store.Transition("o/c", 3, todo.StatusReady); err != nil {
+		t.Fatal(err)
+	}
+	m.ensureTodoSelection()
+	if m.todoSel != 2 {
+		t.Fatalf("todoSel=%d want 2 (order unchanged)", m.todoSel)
+	}
+	active := m.activeTodos()
+	if active[m.todoSel].Number != 3 {
+		t.Fatalf("selected #%d want #3", active[m.todoSel].Number)
 	}
 }
 

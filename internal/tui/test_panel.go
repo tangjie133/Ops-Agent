@@ -19,6 +19,31 @@ const (
 	focusTest
 )
 
+const listEntryLines = 2 // 每条待办/验收占 2 行（标题行 + 副标题行）
+
+// panelScrollStart 计算列表渲染起始下标，使 sel 保持在 maxLines 窗口内。
+func panelScrollStart(sel, total, maxLines int) int {
+	if total <= 0 || maxLines <= 0 {
+		return 0
+	}
+	visible := maxLines / listEntryLines
+	if visible < 1 {
+		visible = 1
+	}
+	if total <= visible {
+		return 0
+	}
+	start := 0
+	if sel >= visible {
+		start = sel - visible + 1
+	}
+	maxStart := total - visible
+	if start > maxStart {
+		start = maxStart
+	}
+	return start
+}
+
 func (m *Model) leftPanelSplit() (todoLines, testLines int) {
 	body := m.bodyHeight()
 	testLines = body / 3
@@ -46,15 +71,45 @@ func (m *Model) activeLibTests() []libtest.Item {
 	return active
 }
 
+func testIndexByKey(active []libtest.Item, repo, ref string) int {
+	want := libtest.Key(repo, ref)
+	for i, it := range active {
+		if libtest.Key(it.Repo, it.Ref) == want {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m *Model) captureTestAnchor() {
+	active := m.activeLibTests()
+	if m.testSel >= 0 && m.testSel < len(active) {
+		it := active[m.testSel]
+		m.testAnchorRepo = it.Repo
+		m.testAnchorRef = it.Ref
+	}
+}
+
 func (m *Model) ensureTestSelection() {
 	active := m.activeLibTests()
 	if len(active) == 0 {
 		m.testSel = -1
+		m.testAnchorRepo = ""
+		m.testAnchorRef = ""
 		return
+	}
+	if m.testAnchorRepo != "" {
+		if idx := testIndexByKey(active, m.testAnchorRepo, m.testAnchorRef); idx >= 0 {
+			m.testSel = idx
+			return
+		}
+		m.testAnchorRepo = ""
+		m.testAnchorRef = ""
 	}
 	if m.testSel < 0 || m.testSel >= len(active) {
 		m.testSel = 0
 	}
+	m.captureTestAnchor()
 }
 
 func (m *Model) testUp() {
@@ -68,6 +123,7 @@ func (m *Model) testUp() {
 		return
 	}
 	m.testSel--
+	m.captureTestAnchor()
 	m.markDirty()
 }
 
@@ -86,6 +142,7 @@ func (m *Model) testDown() {
 		return
 	}
 	m.testSel++
+	m.captureTestAnchor()
 	m.markDirty()
 }
 
@@ -140,8 +197,13 @@ func (m *Model) renderTestPanel(maxLines int) string {
 	}
 	m.ensureTestSelection()
 	lineWidth := m.todoPanelWidth() - 2
+	start := panelScrollStart(m.testSel, len(active), maxLines)
 	var lines []string
-	for i, it := range active {
+	if start > 0 {
+		lines = append(lines, styleTodoItem.Render(fmt.Sprintf("  …+%d ↑", start)))
+	}
+	for i := start; i < len(active); i++ {
+		it := active[i]
 		entry := formatTestEntry(it, lineWidth, i == m.testSel && m.leftFocus == focusTest, m.spinnerFrame)
 		if len(lines)+len(entry) > maxLines {
 			remaining := len(active) - i
@@ -174,8 +236,13 @@ func (m *Model) renderTodoPanelLimited(maxLines int) string {
 	}
 	m.ensureTodoSelection()
 	lineWidth := m.todoPanelWidth() - 2
+	start := panelScrollStart(m.todoSel, len(active), maxLines)
 	var lines []string
-	for i, it := range active {
+	if start > 0 {
+		lines = append(lines, styleTodoItem.Render(fmt.Sprintf("  …+%d ↑", start)))
+	}
+	for i := start; i < len(active); i++ {
+		it := active[i]
 		entry := formatTodoEntry(it, lineWidth, i == m.todoSel && m.leftFocus == focusTodo, m.spinnerFrame)
 		if len(lines)+len(entry) > maxLines {
 			remaining := len(active) - i

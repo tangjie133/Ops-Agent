@@ -167,6 +167,7 @@ func (m *Model) renderConfirmMenu() string {
 }
 
 func (m *Model) runAgentChat(line string) tea.Cmd {
+	m.captureTodoAnchor()
 	invLog := m.investigatorLogFn
 	ctx := m.bgCtx()
 	return func() tea.Msg {

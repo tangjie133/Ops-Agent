@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestFileStoreUpsertAndTransition(t *testing.T) {
@@ -86,6 +87,30 @@ func TestFileStoreShouldEnqueue(t *testing.T) {
 	_ = s.Transition("o/r", 1, StatusDismissed)
 	if s.ShouldEnqueue("o/r", 1) {
 		t.Fatal("dismissed should not re-enqueue")
+	}
+}
+
+func TestFileStoreListOrderStableAfterTransition(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "todo.json")
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Add(-time.Hour)
+	for i, num := range []int{1, 2, 3} {
+		if err := s.Upsert(Item{
+			Repo: "o/r", Number: num, Title: "t", Status: StatusInTodo,
+			CreatedAt: base.Add(time.Duration(i) * time.Minute),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Transition("o/r", 3, StatusReady); err != nil {
+		t.Fatal(err)
+	}
+	list := s.List()
+	if len(list) != 3 || list[2].Number != 3 || list[2].Status != StatusReady {
+		t.Fatalf("list=%+v", list)
 	}
 }
 

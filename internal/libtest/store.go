@@ -72,6 +72,13 @@ func Load(path string) (*FileStore, error) {
 	return s, nil
 }
 
+func itemLess(a, b Item) bool {
+	if !a.CreatedAt.Equal(b.CreatedAt) {
+		return a.CreatedAt.Before(b.CreatedAt)
+	}
+	return Key(a.Repo, a.Ref) < Key(b.Repo, b.Ref)
+}
+
 func (s *FileStore) List() []Item {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -80,7 +87,7 @@ func (s *FileStore) List() []Item {
 		out = append(out, it)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		return itemLess(out[i], out[j])
 	})
 	return out
 }
@@ -168,7 +175,7 @@ func (s *FileStore) saveLocked() error {
 		items = append(items, it)
 	}
 	sort.Slice(items, func(i, j int) bool {
-		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+		return itemLess(items[i], items[j])
 	})
 	data, err := json.MarshalIndent(items, "", "  ")
 	if err != nil {

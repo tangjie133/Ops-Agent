@@ -119,15 +119,44 @@ func (m *Model) activeTodos() []todo.Item {
 	return active
 }
 
+func todoIndexByKey(active []todo.Item, repo string, num int) int {
+	for i, it := range active {
+		if it.Repo == repo && it.Number == num {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m *Model) captureTodoAnchor() {
+	active := m.activeTodos()
+	if m.todoSel >= 0 && m.todoSel < len(active) {
+		it := active[m.todoSel]
+		m.todoAnchorRepo = it.Repo
+		m.todoAnchorNum = it.Number
+	}
+}
+
 func (m *Model) ensureTodoSelection() {
 	active := m.activeTodos()
 	if len(active) == 0 {
 		m.todoSel = -1
+		m.todoAnchorRepo = ""
+		m.todoAnchorNum = 0
 		return
+	}
+	if m.todoAnchorRepo != "" {
+		if idx := todoIndexByKey(active, m.todoAnchorRepo, m.todoAnchorNum); idx >= 0 {
+			m.todoSel = idx
+			return
+		}
+		m.todoAnchorRepo = ""
+		m.todoAnchorNum = 0
 	}
 	if m.todoSel < 0 || m.todoSel >= len(active) {
 		m.todoSel = 0
 	}
+	m.captureTodoAnchor()
 }
 
 func (m *Model) todoUp() {
@@ -141,6 +170,7 @@ func (m *Model) todoUp() {
 		return
 	}
 	m.todoSel--
+	m.captureTodoAnchor()
 	m.markDirty()
 }
 
@@ -159,6 +189,7 @@ func (m *Model) todoDown() {
 		return
 	}
 	m.todoSel++
+	m.captureTodoAnchor()
 	m.markDirty()
 }
 
