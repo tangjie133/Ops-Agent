@@ -92,6 +92,28 @@ func TestProcessFullAutoPost(t *testing.T) {
 	}
 }
 
+func TestProcessFullAutoPostReady(t *testing.T) {
+	cfg := config.Default()
+	cfg.IssueAutomation.SetMode(config.ModeFull)
+
+	store, _ := todo.Load(t.TempDir() + "/todo.json")
+	_ = store.Upsert(todo.Item{Repo: "o/r", Number: 5, Title: "ready", Status: todo.StatusReady, Draft: "draft body"})
+
+	poster := &stubPoster{}
+	w := NewWithDeps(cfg, store, stubAnalyzer{draft: "unused"}, poster)
+	res, err := w.Process(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Posted || len(poster.posted) != 1 {
+		t.Fatalf("res=%+v posted=%v", res, poster.posted)
+	}
+	got, _ := store.Get("o/r", 5)
+	if got.Status != todo.StatusPosted {
+		t.Fatalf("status=%v", got.Status)
+	}
+}
+
 func TestPostDraft(t *testing.T) {
 	cfg := config.Default()
 	store, _ := todo.Load(t.TempDir() + "/todo.json")

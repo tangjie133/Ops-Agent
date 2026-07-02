@@ -66,13 +66,21 @@ func (w *Worker) ShouldRun() bool {
 	return w.cfg.IssueAutomation.Mode != config.ModeManual
 }
 
-// Process 处理一条 in_todo 条目（并发 1）。
+// Process 处理一条 in_todo 条目；full 模式下也会自动发布 ready 草稿。
 func (w *Worker) Process(ctx context.Context) (*Result, error) {
 	if !w.ShouldRun() {
 		return &Result{}, nil
 	}
 	if w.analyzer == nil {
 		return nil, fmt.Errorf("analyzer not configured")
+	}
+
+	if w.cfg.IssueAutomation.Mode == config.ModeFull {
+		for _, item := range w.store.List() {
+			if item.Status == todo.StatusReady && strings.TrimSpace(item.Draft) != "" {
+				return w.postReadyItem(ctx, item)
+			}
+		}
 	}
 
 	for _, item := range w.store.List() {
@@ -150,6 +158,20 @@ func (w *Worker) processItem(ctx context.Context, item todo.Item) (*Result, erro
 	}
 	res.Ready = true
 	res.Draft = draft
+	return res, nil
+}
+
+func (w *Worker) postReadyItem(ctx context.Context, item todo.Item) (*Result, error) {
+	res := &Result{Repo: item.Repo, Number: item.Number, Title: item.Title, Draft: item.Draft}
+	if err := w.postComment(ctx, item.Repo, item.Number, item.Draft); err != nil {
+		res.Failed = true
+		res.ErrMsg = err.Error()
+		return res, err
+	}
+	if err := w.store.Transition(item.Repo, item.Number, todo.StatusPosted); err != nil {
+		return res, err
+	}
+	res.Posted = true
 	return res, nil
 }
 

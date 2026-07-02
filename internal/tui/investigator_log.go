@@ -81,4 +81,5 @@ func (m *Model) clearInvStatus() {
 	if m.invLogSink != nil {
 		m.invLogSink.reset()
 	}
+	m.markDirty()
 }

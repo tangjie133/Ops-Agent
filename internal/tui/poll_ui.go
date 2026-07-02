@@ -19,9 +19,11 @@ func (m *Model) refreshTickCmd() tea.Cmd {
 
 func (m *Model) handleRefreshTick() tea.Cmd {
 	dirty := false
+	var workerCmd tea.Cmd
 
 	if changed, _ := m.store.ReloadIfChanged(); changed {
 		dirty = true
+		workerCmd = m.triggerWorkerIfNeeded()
 	}
 	if changed, _ := m.libTestStore.ReloadIfChanged(); changed {
 		dirty = true
@@ -52,5 +54,8 @@ func (m *Model) handleRefreshTick() tea.Cmd {
 		m.markDirty()
 	}
 
+	if workerCmd != nil {
+		return tea.Batch(m.refreshTickCmd(), workerCmd)
+	}
 	return m.refreshTickCmd()
 }

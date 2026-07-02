@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
+	"github.com/ZzedJay/Ops-Agent/internal/issueapproval"
 	"github.com/ZzedJay/Ops-Agent/internal/issuewatch"
 	"github.com/ZzedJay/Ops-Agent/internal/libtest"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
@@ -263,6 +264,11 @@ func (h *Handler) handleIssueComment(w http.ResponseWriter, body []byte) {
 		return
 	}
 
+	if issueapproval.IsApprovePRComment(evt.Comment.Body) {
+		h.handleApprovePR(w, repo, number, title)
+		return
+	}
+
 	ghIssue := evt.Issue.ToGitHubIssue()
 	res, err := issuewatch.EnqueueOnComment(h.cfg, h.store, repo, ghIssue)
 	if err != nil {
@@ -296,6 +302,36 @@ func (h *Handler) handleIssueComment(w http.ResponseWriter, body []byte) {
 		Title:  title,
 		Reason: reason,
 	})
+	writeEnqueueSkip(w, reason)
+}
+
+func (h *Handler) handleApprovePR(w http.ResponseWriter, repo string, number int, title string) {
+	if !h.cfg.IssueAutomation.RefactorPR.CommentApprovalEnabled() {
+		writeEnqueueSkip(w, "refactor_pr comment approval disabled")
+		return
+	}
+	res, err := issuewatch.ConfirmFixPR(h.store, repo, number)
+	if err != nil {
+		h.logger.Printf("webhook · /approve-pr 失败 %s#%d: %v", repo, number, err)
+		http.Error(w, "confirm fix failed", http.StatusInternalServerError)
+		return
+	}
+	if res.Confirmed {
+		h.emit(Event{
+			Kind:   EventFixConfirmed,
+			Repo:   repo,
+			Number: res.Item.Number,
+			Title:  res.Item.Title,
+		})
+		writeJSON(w, map[string]any{"ok": true, "fix_confirmed": true, "repo": repo, "number": res.Item.Number})
+		return
+	}
+	reason := res.Reason
+	if silentEnqueueReason(reason) {
+		writeEnqueueSkip(w, reason)
+		return
+	}
+	h.emit(Event{Kind: EventSkipped, Repo: repo, Number: number, Title: title, Reason: reason})
 	writeEnqueueSkip(w, reason)
 }
 

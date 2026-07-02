@@ -130,7 +130,7 @@ const footerLineCount = 3
 const menuFooterLines = 15
 
 func (m *Model) activeFooterLines() int {
-	if m.confirmOpen || m.prConfirmOpen {
+	if m.confirmOpen || m.fixConfirmOpen {
 		return 18
 	}
 	if m.aiMenuOpen {
@@ -167,6 +167,9 @@ func (m *Model) activeFooterLines() int {
 		}
 		if m.acceptMenuOpen {
 			lines = 16
+		}
+		if m.modeMenuOpen {
+			lines = 22
 		}
 		if m.webhookMenuOpen && m.webhookEditField >= 0 {
 			lines += 4

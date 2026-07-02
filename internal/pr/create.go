@@ -25,6 +25,12 @@ func Submit(ctx context.Context, gh *github.Client, d *Draft) (string, error) {
 		}
 		return pr.URL, nil
 	}
+	if d.NeedsPush {
+		if d.PushHint != "" {
+			return "", fmt.Errorf(d.PushHint)
+		}
+		return "", fmt.Errorf("分支 %s 尚未 push 到远程，请先 git push -u origin %s", d.HeadBranch, d.HeadBranch)
+	}
 	url, err := gh.PRCreate(ctx, github.PRCreateOpts{
 		Repo:  d.Repo,
 		Title: d.Title,

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -20,10 +21,23 @@ const (
 	StatusAnalyzing Status = "analyzing"  // Investigator 正在分析
 	StatusReady     Status = "ready"      // 草稿就绪，等待用户确认发布（semi）
 	StatusPosted    Status = "posted"     // 评论已发布
+	StatusFixConfirmed Status = "fix_confirmed" // 已确认修库，等待 Refactor Worker
+	StatusRefactoring Status = "refactoring"   // 正在重构/测试
+	StatusPROpened    Status = "pr_opened"    // 已开 PR
 	StatusDone      Status = "done"       // 流程结束
 	StatusDismissed Status = "dismissed"  // 用户忽略
 	StatusFailed    Status = "failed"     // 分析或发布失败
 )
+
+// CanConfirmFix 是否允许进入 fix_confirmed（手动 f 或 /approve-pr）。
+func CanConfirmFix(st Status) bool {
+	switch st {
+	case StatusReady, StatusPosted, StatusFailed:
+		return true
+	default:
+		return false
+	}
+}
 
 // Item 对应一条 GitHub Issue 待办及其分析草稿。
 type Item struct {
@@ -34,6 +48,7 @@ type Item struct {
 	Labels    []string  `json:"labels,omitempty"`
 	Status    Status    `json:"status"`
 	Draft     string    `json:"draft,omitempty"`
+	PRURL     string    `json:"pr_url,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -173,6 +188,19 @@ func (s *FileStore) Transition(repo string, num int, to Status) error {
 	return s.saveLocked()
 }
 
+func (s *FileStore) SetPRURL(repo string, num int, prURL string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := Key(repo, num)
+	it, ok := s.items[key]
+	if !ok {
+		return fmt.Errorf("todo item not found: %s", key)
+	}
+	it.PRURL = strings.TrimSpace(prURL)
+	it.UpdatedAt = time.Now().UTC()
+	s.items[key] = it
+	return s.saveLocked()
+}
 func (s *FileStore) SetDraft(repo string, num int, draft string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

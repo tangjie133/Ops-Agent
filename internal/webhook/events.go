@@ -22,6 +22,7 @@ const (
 	EventPing      EventKind = "ping"
 	EventIgnored      EventKind = "ignored"
 	EventLibTestQueued EventKind = "lib_test_queued"
+	EventFixConfirmed  EventKind = "fix_confirmed"
 )
 
 func (e Event) Message() string {
@@ -60,6 +61,11 @@ func (e Event) Message() string {
 			return fmt.Sprintf("Webhook: 验收入队 %s (%s) %s", e.Repo, e.Reason, e.Title)
 		}
 		return fmt.Sprintf("Webhook: 验收入队 %s (%s)", e.Repo, e.Reason)
+	case EventFixConfirmed:
+		if e.Title != "" {
+			return fmt.Sprintf("Webhook: /approve-pr 已确认修库 %s#%d %s", e.Repo, e.Number, e.Title)
+		}
+		return fmt.Sprintf("Webhook: /approve-pr 已确认修库 %s#%d", e.Repo, e.Number)
 	default:
 		return "Webhook: 事件已处理"
 	}

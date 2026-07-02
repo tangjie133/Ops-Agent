@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ZzedJay/Ops-Agent/internal/agent"
+	"github.com/ZzedJay/Ops-Agent/internal/ai"
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 	"github.com/ZzedJay/Ops-Agent/internal/worker"
@@ -31,6 +32,14 @@ func (m *Model) workerTickCmd() tea.Cmd {
 	})
 }
 
+func (m *Model) refreshAIHealth() {
+	health := ai.CheckHealth(m.bgCtx(), m.cfg.AI)
+	m.aiOK = health.Reachable
+	if !health.Reachable {
+		m.aiWarn = health.Message
+	}
+}
+
 func (m *Model) runWorkerCmd() tea.Cmd {
 	if m.workerBusy {
 		return nil
@@ -39,6 +48,7 @@ func (m *Model) runWorkerCmd() tea.Cmd {
 	invLog := m.investigatorLogFn
 	ctx := m.bgCtx()
 	return func() tea.Msg {
+		m.refreshAIHealth()
 		if !m.aiOK || m.cfg.IssueAutomation.Mode == config.ModeManual {
 			return workerDoneMsg{}
 		}
@@ -56,6 +66,7 @@ func (m *Model) runWorkerCmd() tea.Cmd {
 
 func (m *Model) handleWorkerDone(msg workerDoneMsg) tea.Cmd {
 	m.workerBusy = false
+	_, _ = m.store.ReloadIfChanged()
 	if msg.err != nil {
 		if errors.Is(msg.err, context.Canceled) {
 			m.appendLogKind(logKindWorker, "Worker: 已取消")
@@ -65,6 +76,7 @@ func (m *Model) handleWorkerDone(msg workerDoneMsg) tea.Cmd {
 			m.appendLogKind(logKindError, "Worker: "+msg.err.Error())
 		}
 		m.ensureTodoSelection()
+		m.markDirty()
 		return nil
 	}
 	if text := worker.FormatResult(msg.result); text != "" {
@@ -73,6 +85,7 @@ func (m *Model) handleWorkerDone(msg workerDoneMsg) tea.Cmd {
 			m.ensureTodoSelection()
 		}
 	}
+	m.markDirty()
 	return nil
 }
 
@@ -86,6 +99,10 @@ func (m *Model) triggerWorkerIfNeeded() tea.Cmd {
 func (m *Model) hasWorkerWork() bool {
 	for _, it := range m.store.List() {
 		if it.Status == todo.StatusInTodo {
+			return true
+		}
+		if m.cfg != nil && m.cfg.IssueAutomation.Mode == config.ModeFull &&
+			it.Status == todo.StatusReady && strings.TrimSpace(it.Draft) != "" {
 			return true
 		}
 	}

@@ -147,6 +147,7 @@ func (m *Model) handleWebhookConnEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.connInput, cmd = m.connInput.Update(msg)
+	m.markDirty()
 	return m, cmd
 }
 

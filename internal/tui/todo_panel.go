@@ -74,6 +74,12 @@ func statusSymbol(st todo.Status, spinnerFrame int) string {
 		return analyzingSpinner(spinnerFrame)
 	case todo.StatusReady:
 		return "●"
+	case todo.StatusFixConfirmed:
+		return "◆"
+	case todo.StatusRefactoring:
+		return analyzingSpinner(spinnerFrame)
+	case todo.StatusPROpened:
+		return "✓"
 	case todo.StatusPosted, todo.StatusDone:
 		return "✓"
 	case todo.StatusFailed:

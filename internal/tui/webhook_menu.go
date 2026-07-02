@@ -77,6 +77,7 @@ func (m *Model) flushMenuNotice() {
 
 func (m *Model) setMenuNotice(msg string) {
 	m.menuNotice = msg
+	m.markDirty()
 }
 
 func (m *Model) webhookMenuItemCount() int {

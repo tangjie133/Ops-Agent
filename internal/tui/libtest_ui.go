@@ -74,6 +74,7 @@ func (m *Model) runSelectedLibTest() tea.Cmd {
 
 func (m *Model) handleLibTestDone(msg libTestDoneMsg) tea.Cmd {
 	m.libTestBusy = false
+	_, _ = m.libTestStore.ReloadIfChanged()
 	if msg.err != nil && msg.item != nil {
 		m.appendLogKind(logKindError, fmt.Sprintf("验收: %s@%s %v", msg.item.Repo, msg.item.Ref, msg.err))
 	}
@@ -87,6 +88,7 @@ func (m *Model) handleLibTestDone(msg libTestDoneMsg) tea.Cmd {
 		m.appendLogKind(logKindWorker, fmt.Sprintf("验收: %s %s@%s", st, msg.item.Repo, msg.item.Ref))
 	}
 	m.ensureTestSelection()
+	m.markDirty()
 	return nil
 }
 

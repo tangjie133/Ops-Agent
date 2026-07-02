@@ -36,6 +36,13 @@ issue_automation:
     comment_footer: |
       ---
       _Posted by Ops-Agent (auto)_
+  # Issue 确认后重构并开 PR — 在 TUI /mode 菜单配置
+  refactor_pr:
+    enabled: false
+    trigger: manual
+    branch_prefix: ops-agent/issue-
+    test_commands: []
+    max_steps: 0
   notify_on_ready: false
   notify_on_posted: false
 

@@ -334,6 +334,7 @@ func (m *Model) handleAIConnEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.aiInput, cmd = m.aiInput.Update(msg)
+	m.markDirty()
 	return m, cmd
 }
 

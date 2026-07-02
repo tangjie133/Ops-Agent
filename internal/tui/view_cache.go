@@ -26,6 +26,8 @@ type viewCacheState struct {
 	cwdLoaded time.Time
 }
 
+// markDirty 必须在任何会改变 View() 输出可见内容的 Model 变更后调用；
+// 否则 tryCachedView 会返回旧帧（连接字段编辑、待办列表、状态栏等均受影响）。
 func (m *Model) markDirty() {
 	m.viewCache.mu.Lock()
 	m.viewCache.dirty = true

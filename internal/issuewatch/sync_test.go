@@ -61,8 +61,10 @@ func TestEnqueueOnComment(t *testing.T) {
 
 	closed := github.Issue{Number: 11, Title: "closed", State: "CLOSED"}
 	res, err = EnqueueOnComment(cfg, store, "o/r", closed)
-	if err != nil || res.Added || res.Reason != "issue closed" {
-		t.Fatalf("res=%+v", res)
+	_ = store.Transition("o/r", 10, todo.StatusFixConfirmed)
+	res, err = EnqueueOnComment(cfg, store, "o/r", iss)
+	if err != nil || res.Added || res.Reason != "fix in progress" {
+		t.Fatalf("fix_confirmed: res=%+v err=%v", res, err)
 	}
 }
 

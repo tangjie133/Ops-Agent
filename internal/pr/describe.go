@@ -20,13 +20,17 @@ BODY:
 
 // Draft AI 生成的 PR 草稿。
 type Draft struct {
-	Repo       string
-	Title      string
-	Body       string
-	BaseBranch string
-	HeadBranch string
-	ExistingPR int // 非 0 表示更新已有 PR
-	ExistingURL string
+	Repo          string
+	Title         string
+	Body          string
+	BaseBranch    string
+	HeadBranch    string
+	ExistingPR    int // 非 0 表示更新已有 PR
+	ExistingURL   string
+	CommitCount   int
+	NeedsPush     bool
+	UnpushedCount int
+	PushHint      string
 }
 
 // GenerateDraft 调用 AI 根据 BranchInfo 生成 PR 标题与正文。
@@ -45,11 +49,15 @@ func GenerateDraft(ctx context.Context, aiCfg config.AIConfig, info *BranchInfo)
 		return nil, err
 	}
 	d := &Draft{
-		Repo:       info.Repo,
-		Title:      title,
-		Body:       body,
-		BaseBranch: info.BaseBranch,
-		HeadBranch: info.HeadBranch,
+		Repo:          info.Repo,
+		Title:         title,
+		Body:          body,
+		BaseBranch:    info.BaseBranch,
+		HeadBranch:    info.HeadBranch,
+		CommitCount:   info.CommitCount,
+		NeedsPush:     info.NeedsPush,
+		UnpushedCount: info.UnpushedCount,
+		PushHint:      info.PushHint,
 	}
 	if info.ExistingPR != nil {
 		d.ExistingPR = info.ExistingPR.Number

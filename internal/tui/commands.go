@@ -11,7 +11,6 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
 	"github.com/ZzedJay/Ops-Agent/internal/netproxy"
-	"github.com/ZzedJay/Ops-Agent/internal/prcheck"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
@@ -33,17 +32,13 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, stor
 	case "/status":
 		return cmdStatus(ctx, gh, cfg)
 	case "/mode":
-		return "输入 /mode 后按 Enter 打开模式选择菜单。"
+		return "输入 /mode 后按 Enter 打开 Issue 自动化与修库 PR 配置菜单。"
 	case "/model", "/ai":
 		return "输入 /model 后按 Enter 打开模型配置菜单。"
 	case "/proxy", "/vpn", "/网络":
 		return "输入 /proxy 后按 Enter 打开网络代理配置菜单。"
 	case "/webhook":
 		return "输入 /webhook 后按 Enter 打开 Webhook 配置菜单。"
-	case "/check":
-		return cmdCheck(ctx, gh)
-	case "/describe", "/pr":
-		return "输入 /describe 后按 Enter：AI 根据当前分支生成 PR 标题与正文，预览确认后创建。"
 	case "/issue":
 		cwdRepo, _ := gh.RepoFromCwd(ctx)
 		repo, num, errMsg := parseIssueArgs(parts, store, cwdRepo)
@@ -73,10 +68,7 @@ func helpText() string {
   /accept            验收配置（与 Issue 独立 · 手动/自动）
   /model             打开模型配置菜单（base_url / model / api_key）
   /proxy             打开网络代理菜单（翻墙 / gh clone）
-  /mode              打开模式选择菜单（1/2/3 或 j/k + Enter，自动保存）
-  /check             检测当前分支 PR（checks + 冲突）
-  /describe          AI 生成 PR 描述，预览确认后 gh pr create
-  /pr                同 /describe
+  /mode              打开 Issue 自动化与修库 PR 菜单（1-5 · 自动保存）
   /issue owner/repo#n  查看 issue 详情（i 键使用待办所属仓库）
   /feedback          反馈（M4）
 
@@ -92,6 +84,7 @@ func helpText() string {
   Enter        验收项：立即执行验收
   i            查看选中待办 issue 详情
   p            发布 ready 草稿（semi 确认 / manual）
+  f            确认修库并开 PR（/mode 配置）
   d            忽略选中待办
   Ctrl+Y       复制 tui.log 到剪贴板
   鼠标滚轮     在对话区滚动
@@ -163,6 +156,7 @@ func cmdStatus(ctx context.Context, gh *github.Client, cfg *config.Config) strin
 	}
 
 	b.WriteString(fmt.Sprintf("\n自动化模式: %s\n", cfg.IssueAutomation.ModeSummary()))
+	b.WriteString(fmt.Sprintf("修库 PR: %s\n", cfg.IssueAutomation.RefactorPR.Summary()))
 	b.WriteString(fmt.Sprintf("Issue 监视: enabled=%v labels=%v (webhook)\n",
 		cfg.IssueWatch.Enabled, cfg.IssueWatch.Labels))
 	if cfg.Webhook.Enabled {
@@ -173,14 +167,6 @@ func cmdStatus(ctx context.Context, gh *github.Client, cfg *config.Config) strin
 	b.WriteString(fmt.Sprintf("待办存储: %s\n", config.TodoStorePath()))
 
 	return b.String()
-}
-
-func cmdCheck(ctx context.Context, gh *github.Client) string {
-	res, err := prcheck.Check(ctx, gh, prcheck.Options{})
-	if err != nil {
-		return fmt.Sprintf("PR 检测失败: %v", err)
-	}
-	return res.FormatReport()
 }
 
 func cmdIssue(ctx context.Context, gh *github.Client, store *todo.FileStore, repo string, num int) string {

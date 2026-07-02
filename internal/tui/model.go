@@ -103,20 +103,16 @@ type Model struct {
 	confirmNum   int
 	confirmDraft string
 
-	prConfirmOpen        bool
-	prConfirmRepo        string
-	prConfirmTitle       string
-	prConfirmBody        string
-	prConfirmBase        string
-	prConfirmHead        string
-	prConfirmEditNum     int
-	prConfirmExistingURL string
-	prDescribeBusy       bool
+	fixConfirmOpen  bool
+	fixConfirmRepo  string
+	fixConfirmNum   int
+	fixConfirmTitle string
 
 	invLogSink *investigatorLogSink
 	invStatus  string
 
-	workerBusy  bool // 主线程设置，防止 Worker 重入
+	workerBusy   bool // 主线程设置，防止 Worker 重入
+	refactorBusy bool // Refactor Worker 重入保护
 	libTestBusy bool
 
 	runCtx context.Context // 退出时 cancel，终止后台 tea.Cmd
@@ -226,8 +222,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.prConfirmOpen {
-			handled, postCmd := m.handlePRConfirmKey(msg.String())
+		if m.fixConfirmOpen {
+			handled, postCmd := m.handleFixConfirmKey(msg.String())
 			if handled {
 				return m, postCmd
 			}
@@ -266,8 +262,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.modeMenuOpen {
-			if m.handleModeMenuKey(msg.String()) {
-				return m, textinput.Blink
+			if handled, cmd := m.handleModeMenuKey(msg.String()); handled {
+				return m, cmd
 			}
 			return m, nil
 		}
@@ -289,8 +285,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "esc":
-			if m.prConfirmOpen {
-				m.closePRConfirmMenu()
+			if m.fixConfirmOpen {
+				m.closeFixConfirmMenu()
 				return m, nil
 			}
 			if m.confirmOpen {
@@ -351,6 +347,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.openConfirmMenu()
 				return m, nil
 			}
+		case "f":
+			if m.input.Value() == "" && m.leftFocus == focusTodo {
+				m.openFixConfirmMenu()
+				return m, nil
+			}
 		case "tab":
 			if m.applyCompletionTab() {
 				return m, nil
@@ -404,15 +405,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if isAcceptMenuCommand(line) {
 				m.openAcceptMenu()
 				return m, nil
-			}
-			if isPRDescribeIntent(line) {
-				if m.prDescribeBusy {
-					m.appendOutput("正在生成 PR 描述，请稍候 …")
-					return m, nil
-				}
-				m.prDescribeBusy = true
-				m.appendOutput("正在生成 PR 描述 …")
-				return m, m.runDescribeCmd()
 			}
 			if !strings.HasPrefix(line, "/") {
 				return m, m.runAgentChat(line)
@@ -470,11 +462,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleRefreshTick()
 
 	case workerTickMsg:
+		m.refreshAIHealth()
 		cmds := []tea.Cmd{m.workerTickCmd()}
 		if !m.workerBusy && m.cfg.IssueAutomation.Mode != config.ModeManual && m.aiOK && m.cfg.IssueAutomation.AutoAnalyze && m.hasWorkerWork() {
 			cmds = append(cmds, m.runWorkerCmd())
 		}
+		if !m.refactorBusy && m.aiOK && m.hasRefactorWork() {
+			cmds = append(cmds, m.runRefactorCmd("", 0))
+		}
 		return m, tea.Batch(cmds...)
+
+	case refactorDoneMsg:
+		cmd := m.handleRefactorDoneMsg(msg)
+		m.clearInvStatus()
+		return m, cmd
 
 	case libTestTickMsg:
 		return m, m.handleLibTestTick()
@@ -507,15 +508,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.markDirty()
 		return m, nil
 
-	case prDescribeDoneMsg:
-		m.prDescribeBusy = false
-		if msg.err != nil {
-			m.appendOutput("PR 描述失败: " + msg.err.Error())
-			return m, nil
-		}
-		m.openPRConfirmMenu(msg.draft)
-		return m, nil
-
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -535,13 +527,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// 仅键盘输入交给 textinput；其它内部消息（BlinkMsg 等）若传入 Update
-	// 会触发无意义的 View 重绘，长时间运行后会造成事件洪峰。
+	// 连接字段编辑时把 BlinkMsg 等交给 textinput；菜单未编辑时丢弃非 KeyMsg，避免事件洪峰。
+	if m.aiMenuOpen && m.aiEditField >= 0 {
+		return m.handleAIConnEdit(msg)
+	}
+	if m.proxyMenuOpen && m.proxyEditField >= 0 {
+		return m.handleProxyConnEdit(msg)
+	}
+	if m.webhookMenuOpen && m.webhookEditField >= 0 {
+		return m.handleWebhookConnEdit(msg)
+	}
+
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
-	if m.modeMenuOpen || m.webhookMenuOpen || m.aiMenuOpen || m.proxyMenuOpen || m.confirmOpen || m.prConfirmOpen || m.acceptMenuOpen {
+	if m.modeMenuOpen || m.webhookMenuOpen || m.aiMenuOpen || m.proxyMenuOpen || m.confirmOpen || m.fixConfirmOpen || m.acceptMenuOpen {
 		return m, nil
 	}
 	prev := m.input.Value()
@@ -742,8 +743,8 @@ func (m *Model) renderFooter() string {
 		return b.String()
 	}
 
-	if m.prConfirmOpen {
-		b.WriteString(m.renderPRConfirmMenu())
+	if m.fixConfirmOpen {
+		b.WriteString(m.renderFixConfirmMenu())
 		b.WriteString("\n")
 		return b.String()
 	}

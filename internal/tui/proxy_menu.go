@@ -357,6 +357,7 @@ func (m *Model) handleProxyConnEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.proxyInput, cmd = m.proxyInput.Update(msg)
+	m.markDirty()
 	return m, cmd
 }
 

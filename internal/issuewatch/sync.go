@@ -46,8 +46,10 @@ func EnqueueOnComment(cfg *config.Config, store *todo.FileStore, repo string, is
 		switch it.Status {
 		case todo.StatusInTodo, todo.StatusAnalyzing:
 			return &EnqueueResult{Reason: "already active"}, nil
-		case todo.StatusReady, todo.StatusPosted, todo.StatusFailed:
+		case todo.StatusReady, todo.StatusPosted, todo.StatusFailed, todo.StatusPROpened:
 			return reactivateForComment(store, repo, iss, it)
+		case todo.StatusFixConfirmed, todo.StatusRefactoring:
+			return &EnqueueResult{Reason: "fix in progress"}, nil
 		case todo.StatusDone, todo.StatusDismissed:
 			return Reopen(cfg, store, repo, iss)
 		}

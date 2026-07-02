@@ -58,6 +58,7 @@ type IssueAutomationConfig struct {
 	AutoAnalyze        bool            `yaml:"auto_analyze"`
 	ConfirmBeforeReply bool            `yaml:"confirm_before_reply"`
 	AutoReply          AutoReplyConfig `yaml:"auto_reply"`
+	RefactorPR         RefactorPRConfig `yaml:"refactor_pr"`
 	NotifyOnReady      bool            `yaml:"notify_on_ready"`
 	NotifyOnPosted     bool            `yaml:"notify_on_posted"`
 }
@@ -123,6 +124,10 @@ func Default() *Config {
 			AutoReply: AutoReplyConfig{
 				MaxCommentsPerHour: 10,
 				CommentFooter:      "---\n_Posted by Ops-Agent (auto)_",
+			},
+			RefactorPR: RefactorPRConfig{
+				Enabled: false,
+				Trigger: RefactorPRTriggerManual,
 			},
 		},
 		LibTest: LibTestConfig{
@@ -198,6 +203,7 @@ func Load() (*Config, error) {
 	}
 
 	cfg.AI.normalize()
+	cfg.IssueAutomation.RefactorPR.Normalize()
 	cfg.Proxy.Normalize()
 	expandEnv(cfg)
 	return cfg, nil

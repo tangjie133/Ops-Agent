@@ -26,15 +26,19 @@ func TestPersistConfig(t *testing.T) {
 	}
 }
 
-func TestApplyAutomationModePersists(t *testing.T) {
+func TestModeMenuActivatePersists(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("OPS_AGENT_CONFIG", dir+"/cfg.yaml")
 	cfg := config.Default()
-	out := applyAutomationMode(cfg, config.ModeFull)
-	if !strings.Contains(out, "已保存") {
-		t.Fatalf("out=%q", out)
+	m := &Model{cfg: cfg}
+	m.modeMenuSel = int(modeItemFull)
+	if !m.modeMenuActivate() {
+		t.Fatal("expected activate")
 	}
 	if cfg.IssueAutomation.Mode != config.ModeFull {
 		t.Fatalf("mode=%s", cfg.IssueAutomation.Mode)
+	}
+	if !strings.Contains(m.menuNotice, "已保存") {
+		t.Fatalf("notice=%q", m.menuNotice)
 	}
 }

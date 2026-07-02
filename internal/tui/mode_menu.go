@@ -1,12 +1,26 @@
 package tui
 
-// mode_menu.go — /mode 自动化模式选择菜单（manual/semi/full）。
+// mode_menu.go — /mode Issue 自动化与 refactor_pr 配置菜单。
 
 import (
 	"fmt"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/ZzedJay/Ops-Agent/internal/config"
+)
+
+const modeMenuItemCount = 5
+
+type modeMenuItem int
+
+const (
+	modeItemManual modeMenuItem = iota
+	modeItemSemi
+	modeItemFull
+	modeItemRefactorEnabled
+	modeItemRefactorTrigger
 )
 
 var modeMenuOptions = []string{config.ModeManual, config.ModeSemi, config.ModeFull}
@@ -24,21 +38,13 @@ func modeMenuIndex(mode string) int {
 	return 1
 }
 
-func applyAutomationMode(cfg *config.Config, mode string) string {
-	if cfg.IssueAutomation.Mode == mode {
-		return fmt.Sprintf("保持: %s\n%s", cfg.IssueAutomation.ModeSummary(), config.ModeDescription(mode))
-	}
-	cfg.IssueAutomation.SetMode(mode)
-	msg := fmt.Sprintf("已切换为: %s\n%s", cfg.IssueAutomation.ModeSummary(), config.ModeDescription(cfg.IssueAutomation.Mode))
-	return msg + "\n" + persistConfig(cfg)
-}
-
 func (m *Model) openModeMenu() {
 	m.modeMenuOpen = true
 	m.modeMenuSel = modeMenuIndex(m.cfg.IssueAutomation.Mode)
 	m.menuNotice = ""
 	m.input.Blur()
 	m.layout()
+	m.markDirty()
 }
 
 func (m *Model) closeModeMenu() {
@@ -46,59 +52,114 @@ func (m *Model) closeModeMenu() {
 	m.flushMenuNotice()
 	m.input.Focus()
 	m.layout()
+	m.markDirty()
 }
 
-func (m *Model) handleModeMenuKey(msg string) bool {
+func (m *Model) saveAutomationSetting(label, value string) {
+	m.cfg.IssueAutomation.RefactorPR.Normalize()
+	msg := persistConfig(m.cfg) + " · " + label + " → " + value
+	m.setMenuNotice(msg)
+	m.markDirty()
+}
+
+func (m *Model) handleModeMenuKey(msg string) (handled bool, cmd tea.Cmd) {
 	switch msg {
 	case "esc":
 		m.closeModeMenu()
-		return true
+		return true, nil
 	case "j", "down":
-		m.modeMenuSel = (m.modeMenuSel + 1) % len(modeMenuOptions)
+		m.modeMenuSel = (m.modeMenuSel + 1) % modeMenuItemCount
 		m.markDirty()
-		return true
+		return true, nil
 	case "k", "up":
-		n := len(modeMenuOptions)
-		m.modeMenuSel = (m.modeMenuSel - 1 + n) % n
+		m.modeMenuSel = (m.modeMenuSel - 1 + modeMenuItemCount) % modeMenuItemCount
 		m.markDirty()
-		return true
+		return true, nil
 	case "enter":
+		m.modeMenuActivate()
+		return true, m.triggerWorkerIfNeeded()
+	default:
+		if len(msg) == 1 && msg[0] >= '1' && msg[0] <= '5' {
+			m.modeMenuSel = int(msg[0] - '1')
+			m.modeMenuActivate()
+			return true, m.triggerWorkerIfNeeded()
+		}
+	}
+	return false, nil
+}
+
+func (m *Model) modeMenuActivate() bool {
+	m.cfg.IssueAutomation.RefactorPR.Normalize()
+	switch modeMenuItem(m.modeMenuSel) {
+	case modeItemManual, modeItemSemi, modeItemFull:
 		mode := modeMenuOptions[m.modeMenuSel]
-		m.closeModeMenu()
-		m.appendOutput(applyAutomationMode(m.cfg, mode))
+		if m.cfg.IssueAutomation.Mode != mode {
+			m.cfg.IssueAutomation.SetMode(mode)
+		}
+		m.saveAutomationSetting("Issue 模式", m.cfg.IssueAutomation.ModeSummary())
 		return true
-	case "1", "2", "3":
-		m.modeMenuSel = int(msg[0] - '1')
-		mode := modeMenuOptions[m.modeMenuSel]
-		m.closeModeMenu()
-		m.appendOutput(applyAutomationMode(m.cfg, mode))
+	case modeItemRefactorEnabled:
+		m.cfg.IssueAutomation.RefactorPR.Enabled = !m.cfg.IssueAutomation.RefactorPR.Enabled
+		m.saveAutomationSetting("修库 PR", m.cfg.IssueAutomation.RefactorPR.Summary())
+		return true
+	case modeItemRefactorTrigger:
+		if !m.cfg.IssueAutomation.RefactorPR.Enabled {
+			m.setMenuNotice("请先启用「修库 PR」")
+			m.markDirty()
+			return true
+		}
+		m.cfg.IssueAutomation.RefactorPR.CycleTrigger()
+		m.saveAutomationSetting("修库 PR 触发", m.cfg.IssueAutomation.RefactorPR.TriggerLabel())
 		return true
 	}
 	return false
 }
 
 func (m *Model) renderModeMenu() string {
+	m.cfg.IssueAutomation.RefactorPR.Normalize()
+	refactorTrigger := m.cfg.IssueAutomation.RefactorPR.TriggerLabel()
+
+	items := []struct {
+		key, title, value, desc string
+	}{
+		{"1", "Issue · manual", issueModeLabel(m.cfg, config.ModeManual), config.ModeDescription(config.ModeManual)},
+		{"2", "Issue · semi", issueModeLabel(m.cfg, config.ModeSemi), config.ModeDescription(config.ModeSemi)},
+		{"3", "Issue · full", issueModeLabel(m.cfg, config.ModeFull), config.ModeDescription(config.ModeFull)},
+		{"4", "修库 PR", m.cfg.IssueAutomation.RefactorPR.EnabledLabel(), "确认后在分支重构、测试并开 PR（与 Issue 评论 mode 独立）"},
+		{"5", "修库 PR 触发", refactorTrigger, "TUI f 确认 · Issue 评论 /approve-pr · 或两者"},
+	}
+
 	var lines []string
-	lines = append(lines, styleModeMenuTitle.Render("选择自动化模式"))
-	lines = append(lines, fmt.Sprintf("当前: %s", m.cfg.IssueAutomation.ModeSummary()))
+	lines = append(lines, styleModeMenuTitle.Render("Issue 自动化"))
+	lines = append(lines, fmt.Sprintf("当前: %s · 修库 PR: %s",
+		m.cfg.IssueAutomation.ModeSummary(), m.cfg.IssueAutomation.RefactorPR.Summary()))
+	if m.menuNotice != "" {
+		lines = append(lines, styleModeMenuDesc.Render("↳ "+truncateMenuNotice(m.menuNotice, menuNoticeWidth(m.width))))
+	}
 	lines = append(lines, "")
 
-	for i, mode := range modeMenuOptions {
-		key := fmt.Sprintf("%d", i+1)
-		label := fmt.Sprintf("[%s] %s (%s)", key, mode, config.ModeTitle(mode))
-		if mode == m.cfg.IssueAutomation.Mode {
-			label += " · 当前"
-		}
+	for i, it := range items {
 		marker := "  "
 		style := styleModeMenuItem
 		if i == m.modeMenuSel {
 			marker = "> "
 			style = styleModeMenuSelected
 		}
-		lines = append(lines, style.Render(marker+label))
-		lines = append(lines, styleModeMenuDesc.Render("     "+config.ModeDescription(mode)))
+		line := fmt.Sprintf("%s[%s] %s — %s", marker, it.key, it.title, it.value)
+		lines = append(lines, style.Render(line))
+		if it.desc != "" && i == m.modeMenuSel {
+			lines = append(lines, styleModeMenuDesc.Render("     "+truncateMenuNotice(it.desc, menuNoticeWidth(m.width)-5)))
+		}
 	}
 
-	lines = append(lines, "", styleModeMenuHint.Render("1/2/3 直接选择 · j/k 移动 · Enter 确认 · Esc 取消"))
+	lines = append(lines, "", styleModeMenuHint.Render("1-5 或 Enter 切换 · j/k 移动 · Esc 关闭"))
 	return m.renderMenuBox(lines)
+}
+
+func issueModeLabel(cfg *config.Config, mode string) string {
+	label := config.ModeTitle(mode)
+	if cfg.IssueAutomation.Mode == mode {
+		return label + " · 当前"
+	}
+	return label
 }

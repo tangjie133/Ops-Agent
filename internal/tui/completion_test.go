@@ -32,9 +32,9 @@ func TestCompleteIssueFromTodos(t *testing.T) {
 }
 
 func TestGhostSuffix(t *testing.T) {
-	comps := computeCompletions("/che", nil)
-	if ghostSuffix("/che", comps) != "ck" {
-		t.Fatalf("suffix=%q", ghostSuffix("/che", comps))
+	comps := computeCompletions("/web", nil)
+	if ghostSuffix("/web", comps) != "hook" {
+		t.Fatalf("suffix=%q", ghostSuffix("/web", comps))
 	}
 }
 

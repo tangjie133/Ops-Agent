@@ -352,10 +352,11 @@ func (c *Client) PREdit(ctx context.Context, repo string, num int, title, body s
 
 // RepoDefaultBranch 返回仓库默认分支名。
 func (c *Client) RepoDefaultBranch(ctx context.Context, repo string) (string, error) {
-	args := []string{"repo", "view", "--json", "defaultBranchRef"}
+	args := []string{"repo", "view"}
 	if repo != "" {
-		args = append(args, "-R", repo)
+		args = append(args, repo)
 	}
+	args = append(args, "--json", "defaultBranchRef")
 	out, err := c.run(ctx, args...)
 	if err != nil {
 		return "", err
