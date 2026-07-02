@@ -165,40 +165,6 @@ func (m *Model) ensureTodoSelection() {
 	m.captureTodoAnchor()
 }
 
-func (m *Model) todoUp() {
-	active := m.activeTodos()
-	if len(active) == 0 {
-		m.todoSel = -1
-		return
-	}
-	if m.todoSel <= 0 {
-		m.todoSel = 0
-		return
-	}
-	m.todoSel--
-	m.captureTodoAnchor()
-	m.markDirty()
-}
-
-func (m *Model) todoDown() {
-	active := m.activeTodos()
-	if len(active) == 0 {
-		m.todoSel = -1
-		return
-	}
-	if m.todoSel < 0 {
-		m.todoSel = 0
-		return
-	}
-	if m.todoSel >= len(active)-1 {
-		m.todoSel = len(active) - 1
-		return
-	}
-	m.todoSel++
-	m.captureTodoAnchor()
-	m.markDirty()
-}
-
 func (m *Model) dismissSelectedTodo() {
 	active := m.activeTodos()
 	if m.todoSel < 0 || m.todoSel >= len(active) {

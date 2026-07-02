@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ZzedJay/Ops-Agent/internal/libtest"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
@@ -87,5 +88,53 @@ func TestAnalyzingSpinner(t *testing.T) {
 	}, 30, false, 0)
 	if !strings.Contains(lines[0], a) {
 		t.Fatalf("head=%q want spinner %q", lines[0], a)
+	}
+}
+
+func TestTestListWrapsSelection(t *testing.T) {
+	dir := t.TempDir()
+	store, err := libtest.Load(dir + "/libtest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, repo := range []string{"o/a", "o/b", "o/c"} {
+		if err := store.Upsert(libtest.Item{Repo: repo, Ref: "main", Title: repo, Status: libtest.StatusPending}); err != nil {
+			t.Fatal(err)
+		}
+		_ = i
+	}
+	m := Model{libTestStore: store, testSel: 2}
+	m.testDown()
+	if m.testSel != 0 {
+		t.Fatalf("down from last: testSel=%d want 0", m.testSel)
+	}
+	m.testUp()
+	if m.testSel != 2 {
+		t.Fatalf("up from first: testSel=%d want 2", m.testSel)
+	}
+}
+
+func TestTodoListWrapsSelection(t *testing.T) {
+	store, err := todo.Load(t.TempDir() + "/todo.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC()
+	for i, repo := range []string{"o/a", "o/b", "o/c"} {
+		if err := store.Upsert(todo.Item{
+			Repo: repo, Number: i + 1, Title: repo, Status: todo.StatusInTodo,
+			CreatedAt: base, UpdatedAt: base,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := Model{store: store, todoSel: 2}
+	m.todoDown()
+	if m.todoSel != 0 {
+		t.Fatalf("down from last: todoSel=%d want 0", m.todoSel)
+	}
+	m.todoUp()
+	if m.todoSel != 2 {
+		t.Fatalf("up from first: todoSel=%d want 2", m.todoSel)
 	}
 }

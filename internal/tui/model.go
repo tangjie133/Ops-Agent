@@ -294,7 +294,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Quit
-		case "j":
+		case "j", "down":
 			if m.input.Value() == "" {
 				if m.leftFocus == focusTest {
 					m.testDown()
@@ -303,7 +303,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-		case "k":
+		case "k", "up":
 			if m.input.Value() == "" {
 				if m.leftFocus == focusTest {
 					m.testUp()
@@ -650,7 +650,6 @@ func (m *Model) renderTodoPanel() string {
 	if len(active) == 0 {
 		return styleTodoItem.Render("  (无)")
 	}
-	m.ensureTodoSelection()
 
 	maxLines := m.bodyHeight() - 1
 	if maxLines < 1 {
@@ -761,7 +760,7 @@ func (m *Model) renderFooter() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(styleHelp.Render("[/] 待办/验收 · j/k 移动 · Ctrl+Y 复制日志"))
+	b.WriteString(styleHelp.Render("[/] 待办/验收 · j/k/↑↓ 移动（首尾循环） · Ctrl+Y 复制日志"))
 	return b.String()
 }
 

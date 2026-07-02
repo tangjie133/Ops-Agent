@@ -112,39 +112,49 @@ func (m *Model) ensureTestSelection() {
 	m.captureTestAnchor()
 }
 
-func (m *Model) testUp() {
-	active := m.activeLibTests()
-	if len(active) == 0 {
-		m.testSel = -1
-		return
+// panelWrapSel 在 n 条目中沿 delta 方向循环移动选中下标（delta +1 向下，-1 向上）。
+func panelWrapSel(sel, delta, n int) int {
+	if n <= 0 {
+		return -1
 	}
-	if m.testSel <= 0 {
-		m.testSel = 0
-		return
+	if sel < 0 {
+		if delta >= 0 {
+			return 0
+		}
+		return n - 1
 	}
-	m.testSel--
-	m.captureTestAnchor()
+	return (sel + delta + n*1024) % n
+}
+
+func (m *Model) moveTodoSel(delta int) {
+	n := len(m.activeTodos())
+	m.todoSel = panelWrapSel(m.todoSel, delta, n)
+	if n > 0 {
+		m.captureTodoAnchor()
+	} else {
+		m.todoAnchorRepo = ""
+		m.todoAnchorNum = 0
+	}
 	m.markDirty()
 }
 
-func (m *Model) testDown() {
-	active := m.activeLibTests()
-	if len(active) == 0 {
-		m.testSel = -1
-		return
+func (m *Model) moveTestSel(delta int) {
+	n := len(m.activeLibTests())
+	m.testSel = panelWrapSel(m.testSel, delta, n)
+	if n > 0 {
+		m.captureTestAnchor()
+	} else {
+		m.testAnchorRepo = ""
+		m.testAnchorRef = ""
 	}
-	if m.testSel < 0 {
-		m.testSel = 0
-		return
-	}
-	if m.testSel >= len(active)-1 {
-		m.testSel = len(active) - 1
-		return
-	}
-	m.testSel++
-	m.captureTestAnchor()
 	m.markDirty()
 }
+
+func (m *Model) todoUp()   { m.moveTodoSel(-1) }
+func (m *Model) todoDown() { m.moveTodoSel(1) }
+
+func (m *Model) testUp()   { m.moveTestSel(-1) }
+func (m *Model) testDown() { m.moveTestSel(1) }
 
 func formatTestEntry(it libtest.Item, width int, selected bool, spinnerFrame int) []string {
 	if width < 12 {
@@ -195,7 +205,6 @@ func (m *Model) renderTestPanel(maxLines int) string {
 	if len(active) == 0 {
 		return styleTodoItem.Render("  (无)")
 	}
-	m.ensureTestSelection()
 	lineWidth := m.todoPanelWidth() - 2
 	start := panelScrollStart(m.testSel, len(active), maxLines)
 	var lines []string
@@ -234,7 +243,6 @@ func (m *Model) renderTodoPanelLimited(maxLines int) string {
 	if len(active) == 0 {
 		return styleTodoItem.Render("  (无)")
 	}
-	m.ensureTodoSelection()
 	lineWidth := m.todoPanelWidth() - 2
 	start := panelScrollStart(m.todoSel, len(active), maxLines)
 	var lines []string
