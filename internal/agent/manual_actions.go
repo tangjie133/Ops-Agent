@@ -44,7 +44,7 @@ func (a *Agent) manualAnalyze(ctx context.Context, item todo.Item) (string, bool
 		return "", true, err
 	}
 
-	analyzer := ai.NewIssueAnalyzer(a.cfg.AI, a.cfg.Proxy, a.gh)
+	analyzer := ai.NewIssueAnalyzer(a.cfg.AI, a.cfg.Proxy, a.gh, a.cfg.IssueAutomation.AutoReply.CommentFooter)
 	if a.invLog != nil {
 		analyzer.SetLogger(a.invLog)
 	}

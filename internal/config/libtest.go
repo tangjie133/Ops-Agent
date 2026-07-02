@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // LibTestConfig 新库验收：格式规范 + examples/demo 合理性。
@@ -41,7 +42,26 @@ func (c LibTestConfig) Summary() string {
 	if !c.Enabled {
 		return "已禁用"
 	}
-	return c.RunModeLabel() + " · " + c.Standard
+	triggers := c.TriggerSummary()
+	if triggers == "" {
+		triggers = "无触发"
+	}
+	return c.RunModeLabel() + " · " + c.Standard + " · " + triggers
+}
+
+// TriggerSummary 入队触发源摘要。
+func (c LibTestConfig) TriggerSummary() string {
+	var parts []string
+	if c.OnPush {
+		parts = append(parts, "push")
+	}
+	if c.OnRelease {
+		parts = append(parts, "release")
+	}
+	if c.OnRepoCreated {
+		parts = append(parts, "新建仓库")
+	}
+	return strings.Join(parts, "+")
 }
 
 func (c *LibTestConfig) Normalize() {

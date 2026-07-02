@@ -26,6 +26,8 @@ var slashCommands = []commandSpec{
 	{name: "/status", hint: "gh 与 llama 状态"},
 	{name: "/clean", hint: "清空输出区"},
 	{name: "/check", hint: "PR 检测"},
+	{name: "/describe", hint: "AI 生成 PR 描述并创建"},
+	{name: "/pr", hint: "同 /describe"},
 	{name: "/webhook", hint: "Webhook 配置菜单"},
 	{name: "/accept", hint: "验收配置（手动/自动）"},
 	{name: "/model", hint: "模型配置菜单"},

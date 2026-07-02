@@ -10,6 +10,7 @@ import (
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
+	"github.com/ZzedJay/Ops-Agent/internal/issuecomment"
 	"github.com/ZzedJay/Ops-Agent/internal/rag"
 	"github.com/ZzedJay/Ops-Agent/internal/repocontext"
 	"github.com/ZzedJay/Ops-Agent/internal/repovalidate"
@@ -17,8 +18,9 @@ import (
 
 // Investigator 多轮 Agent Issue 分析器。
 type Investigator struct {
-	cfg       config.AIConfig
-	proxy     config.ProxyConfig
+	cfg         config.AIConfig
+	agentFooter string
+	proxy       config.ProxyConfig
 	gh        *github.Client
 	llm       LLM
 	workspace *repocontext.Workspace
@@ -30,17 +32,18 @@ func (inv *Investigator) SetLogger(log Logger) {
 	inv.log = log
 }
 
-func New(cfg config.AIConfig, proxy config.ProxyConfig, gh *github.Client, llm LLM) *Investigator {
+func New(cfg config.AIConfig, proxy config.ProxyConfig, gh *github.Client, llm LLM, agentCommentFooter string) *Investigator {
 	cfg.Investigator.Normalize()
 	cfg.RepoContext.Normalize()
 	cfg.RAG.Normalize()
 	proxy.Normalize()
 	return &Investigator{
-		cfg:       cfg,
-		proxy:     proxy,
-		gh:        gh,
-		llm:       llm,
-		workspace: repocontext.NewWorkspace(cfg.RepoContext, proxy, gh),
+		cfg:         cfg,
+		agentFooter: agentCommentFooter,
+		proxy:       proxy,
+		gh:          gh,
+		llm:         llm,
+		workspace:   repocontext.NewWorkspace(cfg.RepoContext, proxy, gh),
 	}
 }
 
@@ -69,7 +72,9 @@ func (inv *Investigator) AnalyzeIssue(ctx context.Context, repo string, num int)
 	if !strings.EqualFold(iss.State, "OPEN") {
 		return "", fmt.Errorf("issue %s#%d is not open", repo, num)
 	}
-	logf(inv.log, "Investigator issue view OK · 评论 %d 条", len(iss.Comments))
+	commentSel := issuecomment.SelectRecent(iss.Comments, inv.cfg.Investigator.MaxIssueComments, inv.agentFooter)
+	logf(inv.log, "Investigator issue view OK · 评论 %d 条 → 纳入最近 %d 条用户评论（排除 Agent %d 条）",
+		commentSel.Total, len(commentSel.Comments), commentSel.ExcludedAgent)
 
 	logf(inv.log, "Investigator 克隆/更新仓库 %s …", repo)
 	repoPath, err := inv.workspace.Prepare(ctx, repo)
@@ -96,7 +101,8 @@ func (inv *Investigator) AnalyzeIssue(ctx context.Context, repo string, num int)
 	loop := NewLoop(inv.cfg.Investigator, inv.llm, tools, inv.observer)
 	loop.SetLogger(inv.log)
 
-	prompt := buildIssuePrompt(repo, iss, ragIdx, inv.cfg.RAG, repoPath)
+	prompt := buildIssuePrompt(repo, iss, commentSel.Comments, ragIdx, inv.cfg.RAG, repoPath)
+	prompt = inv.appendAutoWebSearchOnRAGMiss(ctx, tools, iss, commentSel.Comments, ragIdx, prompt)
 	if urls := ExtractHTTPURLs(iss.Title + "\n" + iss.Body); len(urls) > 0 {
 		logf(inv.log, "Investigator Issue 链接 %d 个: %s", len(urls), strings.Join(urls, ", "))
 	}
@@ -104,7 +110,7 @@ func (inv *Investigator) AnalyzeIssue(ctx context.Context, repo string, num int)
 	return loop.Run(ctx, prompt)
 }
 
-func buildIssuePrompt(repo string, iss *github.Issue, ragIdx *rag.Index, ragCfg config.RAGConfig, repoPath string) string {
+func buildIssuePrompt(repo string, iss *github.Issue, comments []github.IssueComment, ragIdx *rag.Index, ragCfg config.RAGConfig, repoPath string) string {
 	var labels []string
 	for _, l := range iss.Labels {
 		labels = append(labels, l.Name)
@@ -114,9 +120,9 @@ func buildIssuePrompt(repo string, iss *github.Issue, ragIdx *rag.Index, ragCfg 
 	fmt.Fprintf(&b, "仓库: %s\nIssue: #%d\n标题: %s\n状态: %s\n标签: %s\n链接: %s\n\n正文:\n%s",
 		repo, iss.Number, iss.Title, iss.State, strings.Join(labels, ", "), iss.URL, strings.TrimSpace(iss.Body))
 
-	if len(iss.Comments) > 0 {
-		b.WriteString("\n\n── Issue 评论 ──\n")
-		for i, c := range iss.Comments {
+	if len(comments) > 0 {
+		b.WriteString("\n\n── 最近用户评论 ──\n")
+		for i, c := range comments {
 			author := c.Author.Login
 			if author == "" {
 				author = "unknown"
@@ -126,11 +132,13 @@ func buildIssuePrompt(repo string, iss *github.Issue, ragIdx *rag.Index, ragCfg 
 	}
 
 	allText := iss.Title + "\n" + iss.Body
-	for _, c := range iss.Comments {
+	for _, c := range comments {
 		allText += "\n" + c.Body
 	}
 	if section := rag.PromptSection(ragIdx, allText, ragCfg.InjectTopK); section != "" {
 		b.WriteString(section)
+	} else if ragCfg.On() && ragIdx != nil {
+		b.WriteString(ragMissHint)
 	}
 	if ragCfg.DefaultStandard != "" && repoPath != "" {
 		standardsDir := filepath.Join(config.KnowledgeDir(ragCfg), "standards")

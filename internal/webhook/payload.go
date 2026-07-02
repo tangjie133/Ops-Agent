@@ -14,7 +14,18 @@ type IssuesEvent struct {
 type IssueCommentEvent struct {
 	Action     string     `json:"action"`
 	Issue      Issue      `json:"issue"`
+	Comment    Comment    `json:"comment"`
 	Repository Repository `json:"repository"`
+}
+
+type Comment struct {
+	Body string `json:"body"`
+	User User   `json:"user"`
+}
+
+type User struct {
+	Login string `json:"login"`
+	Type  string `json:"type"`
 }
 
 type Issue struct {

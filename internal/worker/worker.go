@@ -50,7 +50,7 @@ func New(cfg *config.Config, store *todo.FileStore, gh *github.Client) *Worker {
 	return &Worker{
 		cfg:      cfg,
 		store:    store,
-		analyzer: ai.NewIssueAnalyzer(cfg.AI, cfg.Proxy, gh),
+		analyzer: ai.NewIssueAnalyzer(cfg.AI, cfg.Proxy, gh, cfg.IssueAutomation.AutoReply.CommentFooter),
 		poster:   gh,
 	}
 }

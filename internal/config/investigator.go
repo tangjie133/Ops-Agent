@@ -3,6 +3,7 @@ package config
 // InvestigatorConfig 多轮 Issue 调查 Agent 参数。
 type InvestigatorConfig struct {
 	MaxSteps            int  `yaml:"max_steps"`
+	MaxIssueComments    int  `yaml:"max_issue_comments"` // 分析时纳入的最近用户评论数（排除 Agent 回复）
 	MaxToolErrors       int  `yaml:"max_tool_errors"`
 	ReadFileMaxLines    int  `yaml:"read_file_max_lines"`
 	ReadFileMaxBytes    int  `yaml:"read_file_max_bytes"`
@@ -32,6 +33,9 @@ func (c *InvestigatorConfig) WebFetchOn() bool {
 func (c *InvestigatorConfig) Normalize() {
 	if c.MaxSteps <= 0 {
 		c.MaxSteps = 12
+	}
+	if c.MaxIssueComments <= 0 {
+		c.MaxIssueComments = 5
 	}
 	if c.MaxToolErrors <= 0 {
 		c.MaxToolErrors = 3

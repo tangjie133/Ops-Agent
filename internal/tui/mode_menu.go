@@ -55,10 +55,12 @@ func (m *Model) handleModeMenuKey(msg string) bool {
 		return true
 	case "j", "down":
 		m.modeMenuSel = (m.modeMenuSel + 1) % len(modeMenuOptions)
+		m.markDirty()
 		return true
 	case "k", "up":
 		n := len(modeMenuOptions)
 		m.modeMenuSel = (m.modeMenuSel - 1 + n) % n
+		m.markDirty()
 		return true
 	case "enter":
 		mode := modeMenuOptions[m.modeMenuSel]

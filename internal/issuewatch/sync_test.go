@@ -49,6 +49,16 @@ func TestEnqueueOnComment(t *testing.T) {
 		t.Fatalf("res=%+v", res)
 	}
 
+	_ = store.Transition("o/r", 10, todo.StatusPosted)
+	res, err = EnqueueOnComment(cfg, store, "o/r", iss)
+	if err != nil || !res.Added {
+		t.Fatalf("reactivate posted: res=%+v err=%v", res, err)
+	}
+	it, _ := store.Get("o/r", 10)
+	if it.Status != todo.StatusInTodo || it.Draft != "" {
+		t.Fatalf("item=%+v", it)
+	}
+
 	closed := github.Issue{Number: 11, Title: "closed", State: "CLOSED"}
 	res, err = EnqueueOnComment(cfg, store, "o/r", closed)
 	if err != nil || res.Added || res.Reason != "issue closed" {

@@ -124,10 +124,12 @@ func (m *Model) handleWebhookMenuKey(msg string) bool {
 	case "j", "down":
 		n := m.webhookMenuItemCount()
 		m.webhookMenuSel = (m.webhookMenuSel + 1) % n
+		m.markDirty()
 		return true
 	case "k", "up":
 		n := m.webhookMenuItemCount()
 		m.webhookMenuSel = (m.webhookMenuSel - 1 + n) % n
+		m.markDirty()
 		return true
 	case "enter":
 		return m.webhookMenuActivate()

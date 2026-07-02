@@ -44,11 +44,36 @@ func EnqueueOnComment(cfg *config.Config, store *todo.FileStore, repo string, is
 	}
 	if it, ok := store.Get(repo, iss.Number); ok {
 		switch it.Status {
-		case todo.StatusInTodo, todo.StatusAnalyzing, todo.StatusReady, todo.StatusPosted, todo.StatusFailed:
+		case todo.StatusInTodo, todo.StatusAnalyzing:
 			return &EnqueueResult{Reason: "already active"}, nil
+		case todo.StatusReady, todo.StatusPosted, todo.StatusFailed:
+			return reactivateForComment(store, repo, iss, it)
+		case todo.StatusDone, todo.StatusDismissed:
+			return Reopen(cfg, store, repo, iss)
 		}
 	}
-	return Reopen(cfg, store, repo, iss)
+	return Enqueue(cfg, store, repo, iss)
+}
+
+// reactivateForComment 将已处理/失败的条目重置为 in_todo，供 Worker 根据新评论重新分析。
+func reactivateForComment(store *todo.FileStore, repo string, iss github.Issue, it todo.Item) (*EnqueueResult, error) {
+	it.Title = iss.Title
+	it.URL = iss.URL
+	it.Labels = issueLabels(iss)
+	it.Status = todo.StatusInTodo
+	it.Draft = ""
+	if err := store.Upsert(it); err != nil {
+		return nil, err
+	}
+	return &EnqueueResult{Added: true, Item: it}, nil
+}
+
+func issueLabels(iss github.Issue) []string {
+	labels := make([]string, len(iss.Labels))
+	for i, l := range iss.Labels {
+		labels[i] = l.Name
+	}
+	return labels
 }
 
 // Reopen 将 GitHub 重新打开的 issue 写回待办（含曾关闭的条目）。

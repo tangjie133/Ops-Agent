@@ -102,10 +102,12 @@ func (m *Model) handleAIMenuKey(msg string) bool {
 	case "j", "down":
 		n := m.aiMenuItemCount()
 		m.aiMenuSel = (m.aiMenuSel + 1) % n
+		m.markDirty()
 		return true
 	case "k", "up":
 		n := m.aiMenuItemCount()
 		m.aiMenuSel = (m.aiMenuSel - 1 + n) % n
+		m.markDirty()
 		return true
 	case "enter":
 		return m.aiMenuActivate()

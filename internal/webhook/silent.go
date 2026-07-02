@@ -12,7 +12,8 @@ func silentEnqueueReason(reason string) bool {
 		"todo cap reached",
 		"not in todo",
 		"already inactive",
-		"issue_watch disabled":
+		"issue_watch disabled",
+		"own auto reply":
 		return true
 	default:
 		return false

@@ -66,22 +66,34 @@ func (h *Handler) handleRelease(w http.ResponseWriter, body []byte) {
 	writeJSON(w, map[string]any{"ok": true, "queued": added})
 }
 
-func (h *Handler) handleCreate(w http.ResponseWriter, body []byte) {
+// handleRepository 处理 GitHub repository 事件（新建仓库 action=created）。
+func (h *Handler) handleRepository(w http.ResponseWriter, body []byte) {
 	var evt RepositoryEvent
 	if err := json.Unmarshal(body, &evt); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
-	h.cfg.LibTest.Normalize()
-	if !h.cfg.LibTest.Enabled || !h.cfg.LibTest.OnRepoCreated || h.libTest == nil {
-		writeJSON(w, map[string]any{"ok": true, "skipped": "lib_test"})
-		return
-	}
+	repo := evt.Repository.FullName
 	if evt.Action != "created" {
 		writeJSON(w, map[string]any{"ok": true, "skipped": evt.Action})
 		return
 	}
-	added, err := libtestEnqueue(h, evt.Repository.FullName, "HEAD", "create", "new repository")
+	h.cfg.LibTest.Normalize()
+	if !h.cfg.LibTest.Enabled || h.libTest == nil {
+		h.logger.Printf("webhook · 验收入队跳过 %s: lib_test 未启用", repo)
+		writeJSON(w, map[string]any{"ok": true, "skipped": "lib_test disabled"})
+		return
+	}
+	if !h.cfg.LibTest.OnRepoCreated {
+		h.logger.Printf("webhook · 验收入队跳过 %s: on_repo_created 未启用", repo)
+		writeJSON(w, map[string]any{"ok": true, "skipped": "on_repo_created disabled"})
+		return
+	}
+	ref := evt.Repository.DefaultBranch
+	if ref == "" {
+		ref = "HEAD"
+	}
+	added, err := libtestEnqueue(h, repo, ref, "repository", "new repository")
 	if err != nil {
 		http.Error(w, "enqueue failed", http.StatusInternalServerError)
 		return
@@ -92,11 +104,14 @@ func (h *Handler) handleCreate(w http.ResponseWriter, body []byte) {
 func libtestEnqueue(h *Handler, repo, ref, trigger, title string) (bool, error) {
 	added, err := libtest.Enqueue(h.libTest, h.cfg.LibTest, repo, ref, trigger, title)
 	if err != nil {
-		h.logger.Printf("webhook · 验收入队失败 %s: %v", repo, err)
+		h.logger.Printf("webhook · 验收入队失败 %s@%s: %v", repo, ref, err)
 		return false, err
 	}
 	if added {
+		h.logger.Printf("webhook · 验收入队 %s@%s (%s)", repo, ref, trigger)
 		h.emit(Event{Kind: EventLibTestQueued, Repo: repo, Reason: ref + " · " + trigger, Title: title})
+	} else if err == nil {
+		h.logger.Printf("webhook · 验收入队跳过 %s@%s: 已在队列或已忽略", repo, ref)
 	}
 	return added, nil
 }

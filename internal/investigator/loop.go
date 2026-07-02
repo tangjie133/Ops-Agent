@@ -105,6 +105,10 @@ func (l *Loop) Run(ctx context.Context, issuePrompt string) (string, error) {
 			continue
 		}
 
+		if action.Action == ActionRAGSearch {
+			obs = maybeAppendAutoWebSearchAfterRAG(ctx, l.tools, l.cfg, l.log, action.Query, obs)
+		}
+
 		toolErrors = 0
 		summary := summarizeObservation(action.Action, obs)
 		l.emitStep(StepEvent{Step: step, MaxSteps: l.cfg.MaxSteps, Action: action.Action, Detail: detail, Observation: summary})

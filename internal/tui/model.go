@@ -103,6 +103,16 @@ type Model struct {
 	confirmNum   int
 	confirmDraft string
 
+	prConfirmOpen        bool
+	prConfirmRepo        string
+	prConfirmTitle       string
+	prConfirmBody        string
+	prConfirmBase        string
+	prConfirmHead        string
+	prConfirmEditNum     int
+	prConfirmExistingURL string
+	prDescribeBusy       bool
+
 	invLogSink *investigatorLogSink
 	invStatus  string
 
@@ -216,6 +226,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.prConfirmOpen {
+			handled, postCmd := m.handlePRConfirmKey(msg.String())
+			if handled {
+				return m, postCmd
+			}
+		}
 		if m.confirmOpen {
 			handled, postCmd := m.handleConfirmKey(msg.String())
 			if handled {
@@ -273,6 +289,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "esc":
+			if m.prConfirmOpen {
+				m.closePRConfirmMenu()
+				return m, nil
+			}
 			if m.confirmOpen {
 				m.closeConfirmMenu()
 				return m, nil
@@ -385,6 +405,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.openAcceptMenu()
 				return m, nil
 			}
+			if isPRDescribeIntent(line) {
+				if m.prDescribeBusy {
+					m.appendOutput("正在生成 PR 描述，请稍候 …")
+					return m, nil
+				}
+				m.prDescribeBusy = true
+				m.appendOutput("正在生成 PR 描述 …")
+				return m, m.runDescribeCmd()
+			}
 			if !strings.HasPrefix(line, "/") {
 				return m, m.runAgentChat(line)
 			}
@@ -478,6 +507,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.markDirty()
 		return m, nil
 
+	case prDescribeDoneMsg:
+		m.prDescribeBusy = false
+		if msg.err != nil {
+			m.appendOutput("PR 描述失败: " + msg.err.Error())
+			return m, nil
+		}
+		m.openPRConfirmMenu(msg.draft)
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -503,7 +541,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if m.modeMenuOpen || m.webhookMenuOpen || m.aiMenuOpen || m.proxyMenuOpen || m.confirmOpen || m.acceptMenuOpen {
+	if m.modeMenuOpen || m.webhookMenuOpen || m.aiMenuOpen || m.proxyMenuOpen || m.confirmOpen || m.prConfirmOpen || m.acceptMenuOpen {
 		return m, nil
 	}
 	prev := m.input.Value()
@@ -700,6 +738,12 @@ func (m *Model) renderFooter() string {
 
 	if m.confirmOpen {
 		b.WriteString(m.renderConfirmMenu())
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	if m.prConfirmOpen {
+		b.WriteString(m.renderPRConfirmMenu())
 		b.WriteString("\n")
 		return b.String()
 	}

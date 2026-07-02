@@ -82,6 +82,16 @@ type IssueListOpts struct {
 	Limit  int
 }
 
+// PRCreateOpts 创建 Pull Request 的参数。
+type PRCreateOpts struct {
+	Repo  string
+	Title string
+	Body  string
+	Base  string
+	Head  string
+	Draft bool
+}
+
 // Client 封装 GitHub CLI（gh）子进程调用，支持代理环境。
 type Client struct {
 	proxy config.ProxyConfig
@@ -296,6 +306,72 @@ func (c *Client) PRChecks(ctx context.Context, repo string, num int) (*ChecksRes
 		return &ChecksResult{Raw: string(out)}, err
 	}
 	return &ChecksResult{Raw: strings.TrimSpace(string(out))}, nil
+}
+
+// PRCreate 创建 PR，返回 PR URL。
+func (c *Client) PRCreate(ctx context.Context, opts PRCreateOpts) (string, error) {
+	args := []string{"pr", "create", "--title", opts.Title, "--body", opts.Body}
+	if opts.Repo != "" {
+		args = append(args, "-R", opts.Repo)
+	}
+	if opts.Base != "" {
+		args = append(args, "--base", opts.Base)
+	}
+	if opts.Head != "" {
+		args = append(args, "--head", opts.Head)
+	}
+	if opts.Draft {
+		args = append(args, "--draft")
+	}
+	out, err := c.run(ctx, args...)
+	if err != nil {
+		return "", err
+	}
+	url := strings.TrimSpace(string(out))
+	if url == "" {
+		return "", fmt.Errorf("gh pr create: empty response")
+	}
+	return url, nil
+}
+
+// PREdit 更新已有 PR 的 title/body（空字段表示不修改）。
+func (c *Client) PREdit(ctx context.Context, repo string, num int, title, body string) error {
+	args := []string{"pr", "edit", fmt.Sprintf("%d", num)}
+	if repo != "" {
+		args = append(args, "-R", repo)
+	}
+	if strings.TrimSpace(title) != "" {
+		args = append(args, "--title", title)
+	}
+	if strings.TrimSpace(body) != "" {
+		args = append(args, "--body", body)
+	}
+	_, err := c.run(ctx, args...)
+	return err
+}
+
+// RepoDefaultBranch 返回仓库默认分支名。
+func (c *Client) RepoDefaultBranch(ctx context.Context, repo string) (string, error) {
+	args := []string{"repo", "view", "--json", "defaultBranchRef"}
+	if repo != "" {
+		args = append(args, "-R", repo)
+	}
+	out, err := c.run(ctx, args...)
+	if err != nil {
+		return "", err
+	}
+	var result struct {
+		DefaultBranchRef struct {
+			Name string `json:"name"`
+		} `json:"defaultBranchRef"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		return "", fmt.Errorf("parse default branch: %w", err)
+	}
+	if result.DefaultBranchRef.Name == "" {
+		return "main", nil
+	}
+	return result.DefaultBranchRef.Name, nil
 }
 
 // CloneRepo 浅克隆仓库到 dest（使用 gh 凭证）。

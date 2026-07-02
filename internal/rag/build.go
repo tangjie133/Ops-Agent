@@ -60,15 +60,32 @@ func PromptSection(idx *Index, issueText string, topK int) string {
 	if idx == nil || topK <= 0 {
 		return ""
 	}
-	query := extractQuery(issueText)
-	if query == "" {
-		return ""
-	}
-	hits := idx.Search(query, topK)
+	hits := searchIssue(idx, issueText, topK)
 	if len(hits) == 0 {
 		return ""
 	}
 	return "\n\n── 本地知识库 RAG（规范 / 数据手册，优先参考）──\n" + FormatHits(hits)
+}
+
+// HasPromptHits 判断 Issue 文本在知识库中是否有可注入的命中。
+func HasPromptHits(idx *Index, issueText string, topK int) bool {
+	if idx == nil || topK <= 0 {
+		return false
+	}
+	return len(searchIssue(idx, issueText, topK)) > 0
+}
+
+// QueryFromText 提取用于 RAG / 联网搜索的 Issue 文本摘要。
+func QueryFromText(text string) string {
+	return extractQuery(text)
+}
+
+func searchIssue(idx *Index, issueText string, topK int) []ScoredChunk {
+	query := extractQuery(issueText)
+	if query == "" {
+		return nil
+	}
+	return idx.Search(query, topK)
 }
 
 func extractQuery(text string) string {

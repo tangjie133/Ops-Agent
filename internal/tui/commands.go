@@ -42,6 +42,8 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, stor
 		return "输入 /webhook 后按 Enter 打开 Webhook 配置菜单。"
 	case "/check":
 		return cmdCheck(ctx, gh)
+	case "/describe", "/pr":
+		return "输入 /describe 后按 Enter：AI 根据当前分支生成 PR 标题与正文，预览确认后创建。"
 	case "/issue":
 		cwdRepo, _ := gh.RepoFromCwd(ctx)
 		repo, num, errMsg := parseIssueArgs(parts, store, cwdRepo)
@@ -73,6 +75,8 @@ func helpText() string {
   /proxy             打开网络代理菜单（翻墙 / gh clone）
   /mode              打开模式选择菜单（1/2/3 或 j/k + Enter，自动保存）
   /check             检测当前分支 PR（checks + 冲突）
+  /describe          AI 生成 PR 描述，预览确认后 gh pr create
+  /pr                同 /describe
   /issue owner/repo#n  查看 issue 详情（i 键使用待办所属仓库）
   /feedback          反馈（M4）
 

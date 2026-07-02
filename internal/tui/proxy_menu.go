@@ -103,10 +103,12 @@ func (m *Model) handleProxyMenuKey(msg string) bool {
 	case "j", "down":
 		n := m.proxyMenuItemCount()
 		m.proxyMenuSel = (m.proxyMenuSel + 1) % n
+		m.markDirty()
 		return true
 	case "k", "up":
 		n := m.proxyMenuItemCount()
 		m.proxyMenuSel = (m.proxyMenuSel - 1 + n) % n
+		m.markDirty()
 		return true
 	case "enter":
 		return m.proxyMenuActivate()

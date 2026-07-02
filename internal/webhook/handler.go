@@ -81,8 +81,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handlePush(w, body)
 	case "release":
 		h.handleRelease(w, body)
-	case "create":
-		h.handleCreate(w, body)
+	case "repository":
+		h.handleRepository(w, body)
 	case "ping":
 		h.emit(Event{Kind: EventPing})
 		w.WriteHeader(http.StatusOK)
@@ -250,6 +250,11 @@ func (h *Handler) handleIssueComment(w http.ResponseWriter, body []byte) {
 
 	if evt.Action != "created" {
 		writeJSON(w, map[string]any{"ok": true, "skipped": evt.Action})
+		return
+	}
+
+	if skipOwnAutoReply(h.cfg, evt.Comment) {
+		writeEnqueueSkip(w, "own auto reply")
 		return
 	}
 

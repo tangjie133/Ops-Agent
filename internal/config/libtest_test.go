@@ -4,7 +4,8 @@ import "testing"
 
 func TestLibTestSummary(t *testing.T) {
 	c := LibTestConfig{Enabled: true, AutoRun: true, Standard: "arduino-library"}
-	if c.Summary() != "自动 · arduino-library" {
+	c.Normalize()
+	if c.Summary() != "自动 · arduino-library · push+release" {
 		t.Fatalf("got %q", c.Summary())
 	}
 	c.AutoRun = false

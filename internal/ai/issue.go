@@ -27,9 +27,9 @@ type IssueAnalyzer struct {
 	inv *investigator.Investigator
 }
 
-func NewIssueAnalyzer(aiCfg config.AIConfig, proxy config.ProxyConfig, gh *github.Client) *IssueAnalyzer {
+func NewIssueAnalyzer(aiCfg config.AIConfig, proxy config.ProxyConfig, gh *github.Client, agentCommentFooter string) *IssueAnalyzer {
 	client := NewClient(aiCfg)
-	return &IssueAnalyzer{inv: investigator.New(aiCfg, proxy, gh, llmAdapter{client: client})}
+	return &IssueAnalyzer{inv: investigator.New(aiCfg, proxy, gh, llmAdapter{client: client}, agentCommentFooter)}
 }
 
 func (a *IssueAnalyzer) AnalyzeIssue(ctx context.Context, repo string, num int) (string, error) {

@@ -13,6 +13,7 @@ type acceptMenuItem int
 const (
 	acceptItemEnabled acceptMenuItem = iota
 	acceptItemAutoRun
+	acceptItemOnRepoCreated
 )
 
 func isAcceptMenuCommand(line string) bool {
@@ -50,17 +51,17 @@ func (m *Model) handleAcceptMenuKey(msg string) (handled bool, cmd tea.Cmd) {
 		m.closeAcceptMenu()
 		return true, nil
 	case "j", "down":
-		m.acceptMenuSel = (m.acceptMenuSel + 1) % 2
+		m.acceptMenuSel = (m.acceptMenuSel + 1) % 3
 		m.markDirty()
 		return true, nil
 	case "k", "up":
-		m.acceptMenuSel = (m.acceptMenuSel - 1 + 2) % 2
+		m.acceptMenuSel = (m.acceptMenuSel - 1 + 3) % 3
 		m.markDirty()
 		return true, nil
 	case "enter":
 		return m.acceptMenuActivate()
 	default:
-		if len(msg) == 1 && msg[0] >= '1' && msg[0] <= '2' {
+		if len(msg) == 1 && msg[0] >= '1' && msg[0] <= '3' {
 			m.acceptMenuSel = int(msg[0] - '1')
 			return m.acceptMenuActivate()
 		}
@@ -88,6 +89,15 @@ func (m *Model) acceptMenuActivate() (bool, tea.Cmd) {
 		m.cfg.LibTest.AutoRun = !m.cfg.LibTest.AutoRun
 		m.saveAcceptSetting("执行方式")
 		return true, nil
+	case acceptItemOnRepoCreated:
+		if !m.cfg.LibTest.Enabled {
+			m.setMenuNotice("请先启用验收功能")
+			m.markDirty()
+			return true, nil
+		}
+		m.cfg.LibTest.OnRepoCreated = !m.cfg.LibTest.OnRepoCreated
+		m.saveAcceptSetting("新建仓库入队")
+		return true, nil
 	}
 	return true, nil
 }
@@ -101,8 +111,9 @@ func (m *Model) renderAcceptMenu() string {
 	items := []struct {
 		key, title, value, desc string
 	}{
-		{"1", "验收功能", m.cfg.LibTest.EnabledLabel(), "关闭后不再接收 push/release 验收入队，也不执行验收"},
+		{"1", "验收功能", m.cfg.LibTest.EnabledLabel(), "关闭后不再接收 push/release/新建仓库验收入队"},
 		{"2", "执行方式", autoLabel, "自动：入队后后台验收；手动：仅入队，选中后按 Enter 验收"},
+		{"3", "新建仓库入队", onRepoCreatedLabel(m.cfg.LibTest.OnRepoCreated), "GitHub 新建仓库时自动加入验收列表（需 Webhook 订阅 Repository 事件）"},
 	}
 
 	var lines []string
@@ -130,4 +141,11 @@ func (m *Model) renderAcceptMenu() string {
 
 	lines = append(lines, "", styleModeMenuHint.Render("Enter 切换 · j/k 移动 · Esc 关闭"))
 	return m.renderMenuBox(lines)
+}
+
+func onRepoCreatedLabel(on bool) string {
+	if on {
+		return "已启用"
+	}
+	return "已禁用"
 }

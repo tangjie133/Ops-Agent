@@ -130,7 +130,7 @@ const footerLineCount = 3
 const menuFooterLines = 15
 
 func (m *Model) activeFooterLines() int {
-	if m.confirmOpen {
+	if m.confirmOpen || m.prConfirmOpen {
 		return 18
 	}
 	if m.aiMenuOpen {
