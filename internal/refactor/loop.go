@@ -36,7 +36,7 @@ const systemPrompt = `你是 Ops-Agent 代码重构助手。用户已确认修�
 - 小步修改，每次 edit_file 后 run_cmd 或 git diff 验证
 - 必须 repo_validate（若配置了规范）
 - 不要修改 .git/ 或 knowledge/ 目录
-- 完成后 done，body 简述改了什么
+- 完成后 done，body 简述改了什么（语言与 Issue 一致）
 
 收到 tool 结果后继续输出下一个 JSON action，直到 done。`
 

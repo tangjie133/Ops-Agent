@@ -11,6 +11,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
 	"github.com/ZzedJay/Ops-Agent/internal/investigator"
+	"github.com/ZzedJay/Ops-Agent/internal/lang"
 	"github.com/ZzedJay/Ops-Agent/internal/rag"
 	"github.com/ZzedJay/Ops-Agent/internal/repocontext"
 	"github.com/ZzedJay/Ops-Agent/internal/repovalidate"
@@ -81,20 +82,29 @@ func (e *Engine) Run(ctx context.Context, repoPath string, item todo.Item, issue
 	loop := NewLoop(invCfg, llmAdapter{client: ai.NewClient(e.cfg)}, tools)
 	loop.SetLogger(e.log)
 
-	prompt := buildRefactorPrompt(item, issue)
+	prompt := buildRefactorPrompt(item, issue, userCommentBodies(issue.Comments, ""))
 	return loop.Run(ctx, prompt)
 }
 
-func buildRefactorPrompt(item todo.Item, issue *github.Issue) string {
+func buildRefactorPrompt(item todo.Item, issue *github.Issue, commentBodies []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "仓库: %s\nIssue: #%d\n标题: %s\n链接: %s\n\nIssue 正文:\n%s",
 		item.Repo, item.Number, item.Title, item.URL, strings.TrimSpace(issue.Body))
+	if len(commentBodies) > 0 {
+		b.WriteString("\n\n── 最近用户评论 ──\n")
+		for i, c := range commentBodies {
+			fmt.Fprintf(&b, "\n[评论 %d]\n%s\n", i+1, strings.TrimSpace(c))
+		}
+	}
 	if draft := strings.TrimSpace(item.Draft); draft != "" {
 		b.WriteString("\n\n── 已有分析草稿（参考修复方向）──\n")
 		b.WriteString(draft)
 	}
+	b.WriteString("\n\n")
+	b.WriteString(lang.ReplyDirective(issue.Title, issue.Body, commentBodies))
 	b.WriteString("\n\n请在当前分支上实现修复，运行测试与 repo_validate，完成后 done。")
 	b.WriteString("\n\n修改代码时：只改与 Issue 相关的部分；对已有文件使用 edit_file 的 old/new 局部替换，勿整文件覆盖或删除无关函数。")
+	b.WriteString("\ndone 的 body 摘要请使用与 Issue 相同的语言。")
 	return b.String()
 }
 

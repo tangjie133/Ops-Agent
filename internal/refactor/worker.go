@@ -10,6 +10,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
 	"github.com/ZzedJay/Ops-Agent/internal/investigator"
+	"github.com/ZzedJay/Ops-Agent/internal/lang"
 	"github.com/ZzedJay/Ops-Agent/internal/pr"
 	"github.com/ZzedJay/Ops-Agent/internal/repocontext"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
@@ -173,7 +174,7 @@ func (w *Worker) Run(ctx context.Context, req Request) (*Result, error) {
 	if err != nil {
 		return fail(fmt.Errorf("收集分支信息: %w", err))
 	}
-	draft, err := pr.GenerateDraft(ctx, w.cfg.AI, info)
+	draft, err := pr.GenerateDraft(ctx, w.cfg.AI, info, issueContextFrom(iss, w.cfg))
 	if err != nil {
 		return fail(fmt.Errorf("生成 PR 描述: %w", err))
 	}
@@ -186,7 +187,8 @@ func (w *Worker) Run(ctx context.Context, req Request) (*Result, error) {
 		return fail(fmt.Errorf("创建 PR: %w", err))
 	}
 
-	comment := fmt.Sprintf("已开 PR 修复此 Issue：%s\n\n%s", prURL, truncate(summary, 1500))
+	commentBodies := userCommentBodies(iss.Comments, w.cfg.IssueAutomation.AutoReply.CommentFooter)
+	comment := lang.PROpenedComment(prURL, truncate(summary, 1500), iss.Title, iss.Body, commentBodies)
 	comment = ai.FormatCommentBody(comment, w.cfg)
 	if err := w.gh.IssueComment(ctx, req.Repo, req.Number, comment); err != nil {
 		return fail(fmt.Errorf("Issue 回链: %w", err))
@@ -200,6 +202,21 @@ func (w *Worker) Run(ctx context.Context, req Request) (*Result, error) {
 	res.PRURL = prURL
 	res.Done = true
 	return res, nil
+}
+
+func issueContextFrom(iss *github.Issue, cfg *config.Config) pr.IssueContext {
+	if iss == nil {
+		return pr.IssueContext{}
+	}
+	footer := ""
+	if cfg != nil {
+		footer = cfg.IssueAutomation.AutoReply.CommentFooter
+	}
+	return pr.IssueContext{
+		Title:         iss.Title,
+		Body:          iss.Body,
+		CommentBodies: userCommentBodies(iss.Comments, footer),
+	}
 }
 
 func truncate(s string, max int) string {

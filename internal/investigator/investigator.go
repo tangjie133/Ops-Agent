@@ -11,6 +11,7 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
 	"github.com/ZzedJay/Ops-Agent/internal/issuecomment"
+	"github.com/ZzedJay/Ops-Agent/internal/lang"
 	"github.com/ZzedJay/Ops-Agent/internal/rag"
 	"github.com/ZzedJay/Ops-Agent/internal/repocontext"
 	"github.com/ZzedJay/Ops-Agent/internal/repovalidate"
@@ -158,6 +159,12 @@ func buildIssuePrompt(repo string, iss *github.Issue, comments []github.IssueCom
 		}
 	}
 
+	var commentBodies []string
+	for _, c := range comments {
+		commentBodies = append(commentBodies, c.Body)
+	}
+	b.WriteString("\n\n")
+	b.WriteString(lang.ReplyDirective(iss.Title, iss.Body, commentBodies))
 	b.WriteString("\n\n请结合知识库（规范/数据手册）、repo_validate 与源码调查；完成后 reply。")
 	return b.String()
 }

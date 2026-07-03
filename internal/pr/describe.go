@@ -7,14 +7,17 @@ import (
 
 	"github.com/ZzedJay/Ops-Agent/internal/ai"
 	"github.com/ZzedJay/Ops-Agent/internal/config"
+	"github.com/ZzedJay/Ops-Agent/internal/lang"
 )
 
-const describeSystemPrompt = `你是 Pull Request 撰写助手。根据 git 提交记录与 diff 统计，生成简洁专业的 PR 标题与正文（中文为主，技术术语可保留英文）。
+const describeSystemPrompt = `你是 Pull Request 撰写助手。根据 git 提交记录与 diff 统计，生成简洁专业的 PR 标题与正文。
 
 输出格式必须严格为：
 TITLE: 一行标题（不超过 72 字符）
 BODY:
-（Markdown 正文：## 变更摘要、## 测试说明；若 commit 含 #数字 可写 Fixes #n）
+（Markdown 正文：## Summary / ## Testing 或 ## 变更摘要 / ## 测试说明；若 commit 含 #数字 可写 Fixes #n）
+
+语言必须与用户提示中的【语言】/【Language】要求一致。
 
 不要输出其它前缀或解释。`
 
@@ -33,13 +36,20 @@ type Draft struct {
 	PushHint      string
 }
 
+// IssueContext 关联 Issue 文本，用于推断 PR 描述语言。
+type IssueContext struct {
+	Title           string
+	Body            string
+	CommentBodies   []string
+}
+
 // GenerateDraft 调用 AI 根据 BranchInfo 生成 PR 标题与正文。
-func GenerateDraft(ctx context.Context, aiCfg config.AIConfig, info *BranchInfo) (*Draft, error) {
+func GenerateDraft(ctx context.Context, aiCfg config.AIConfig, info *BranchInfo, issue IssueContext) (*Draft, error) {
 	if info == nil {
 		return nil, fmt.Errorf("nil branch info")
 	}
 	client := ai.NewClient(aiCfg)
-	user := buildDescribePrompt(info)
+	user := buildDescribePrompt(info, issue)
 	raw, err := client.Chat(ctx, describeSystemPrompt, user)
 	if err != nil {
 		return nil, err
@@ -66,10 +76,20 @@ func GenerateDraft(ctx context.Context, aiCfg config.AIConfig, info *BranchInfo)
 	return d, nil
 }
 
-func buildDescribePrompt(info *BranchInfo) string {
+func buildDescribePrompt(info *BranchInfo, issue IssueContext) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "仓库: %s\n", info.Repo)
 	fmt.Fprintf(&b, "分支: %s → %s\n\n", info.HeadBranch, info.BaseBranch)
+	if t := strings.TrimSpace(issue.Title); t != "" {
+		fmt.Fprintf(&b, "关联 Issue 标题: %s\n", t)
+	}
+	if body := strings.TrimSpace(issue.Body); body != "" {
+		b.WriteString("关联 Issue 正文:\n")
+		b.WriteString(body)
+		b.WriteString("\n\n")
+	}
+	b.WriteString(lang.PRDescribeDirective(issue.Title, issue.Body, issue.CommentBodies))
+	b.WriteString("\n\n")
 	if info.ExistingPR != nil {
 		fmt.Fprintf(&b, "已有 PR #%d: %s\n\n", info.ExistingPR.Number, info.ExistingPR.Title)
 	}
