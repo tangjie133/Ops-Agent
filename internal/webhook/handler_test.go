@@ -14,6 +14,7 @@ import (
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/libtest"
+	"github.com/ZzedJay/Ops-Agent/internal/task"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
@@ -53,6 +54,36 @@ func TestIssueOpenedEnqueue(t *testing.T) {
 	item, ok := store.Get("o/r", 42)
 	if !ok || item.Status != todo.StatusInTodo {
 		t.Fatalf("store item: %+v ok=%v", item, ok)
+	}
+}
+
+func TestIssueOpenedAlsoCreatesTask(t *testing.T) {
+	cfg := config.Default()
+	cfg.Webhook.Secret = "test-secret"
+	cfg.IssueWatch.Labels = nil
+	cfg.Task.IssueToPR.Enabled = true
+	store, _ := todo.Load(t.TempDir() + "/todo.json")
+	tasks, err := task.Load(t.TempDir() + "/tasks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(cfg, store, nil, func(evt Event) {}, nil)
+	h.SetTasks(tasks)
+	body := []byte(`{
+		"action":"opened",
+		"issue":{"number":7,"title":"bug","state":"open","html_url":"https://github.com/o/r/issues/7","labels":[],"assignees":[]},
+		"repository":{"full_name":"o/r"}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "issues")
+	req.Header.Set("X-Hub-Signature-256", signBody("test-secret", body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, ok := tasks.GetByKey(task.MakeTaskKey("o/r", task.TypeIssueToPR, task.SourceKindIssue, 7)); !ok {
+		t.Fatal("expected task")
 	}
 }
 

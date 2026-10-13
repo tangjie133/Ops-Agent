@@ -4,6 +4,7 @@ package webhook
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/issueapproval"
 	"github.com/ZzedJay/Ops-Agent/internal/issuewatch"
 	"github.com/ZzedJay/Ops-Agent/internal/libtest"
+	"github.com/ZzedJay/Ops-Agent/internal/orchestrator"
+	"github.com/ZzedJay/Ops-Agent/internal/task"
 	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
@@ -23,7 +26,13 @@ type Handler struct {
 	libTest        *libtest.FileStore
 	onEvent        OnEvent
 	logger         *log.Logger
+	tasks          *task.FileStore
 	secretWarnOnce sync.Once
+}
+
+// SetTasks 接入可选的统一任务存储。nil 时保持原有待办行为。
+func (h *Handler) SetTasks(tasks *task.FileStore) {
+	h.tasks = tasks
 }
 
 func NewHandler(cfg *config.Config, store *todo.FileStore, libTest *libtest.FileStore, onEvent OnEvent, logger *log.Logger) *Handler {
@@ -136,6 +145,11 @@ func (h *Handler) handleIssueOpened(w http.ResponseWriter, repo string, evt Issu
 	}
 
 	if res.Added {
+		if h.tasks != nil {
+			if _, _, err := orchestrator.EnqueueIssue(h.cfg, h.tasks, repo, ghIssue, fmt.Sprintf("issues:%s:%d", evt.Action, number)); err != nil {
+				h.logger.Printf("webhook · task 入队失败 %s#%d: %v", repo, number, err)
+			}
+		}
 		h.emit(Event{
 			Kind:   EventAdded,
 			Repo:   repo,
