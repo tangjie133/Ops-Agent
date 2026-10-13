@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -92,7 +91,10 @@ func (o *Orchestrator) RunIssueToPR(ctx context.Context, req RunRequest) (Outcom
 	if req.LocalRepo == "" {
 		return Outcome{}, fmt.Errorf("local repo required")
 	}
-	root := filepath.Join(os.TempDir(), "ops-agent-task-workspaces")
+	root, err := os.MkdirTemp("", "ops-agent-task-")
+	if err != nil {
+		return o.stop(tk, run.ID, task.StatusFailed, err.Error())
+	}
 	branch := fmt.Sprintf("ops-agent/issue-%d", req.Number)
 	sess, err := workspace.AllocateFromLocal(req.LocalRepo, root, branch)
 	if err != nil {
