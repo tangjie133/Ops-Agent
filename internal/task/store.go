@@ -130,6 +130,19 @@ func (s *FileStore) ClearActiveRun(taskID string) error {
 	return s.saveLocked()
 }
 
+// Update 写回任务字段，保留调用方给出的状态。
+func (s *FileStore) Update(in Task) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.tasks[in.Key]; !ok {
+		return fmt.Errorf("task not found: %s", in.Key)
+	}
+	in.UpdatedAt = s.now()
+	s.tasks[in.Key] = in
+	s.byID[in.ID] = in.Key
+	return s.saveLocked()
+}
+
 // GetByKey 按任务键读取任务。
 func (s *FileStore) GetByKey(key string) (Task, bool) {
 	s.mu.RLock()
