@@ -28,6 +28,7 @@ type Config struct {
 	AI              AIConfig              `yaml:"ai"`
 	Proxy           ProxyConfig           `yaml:"proxy"`
 	CI              CIConfig              `yaml:"ci"`
+	Task            TaskConfig            `yaml:"task"`
 }
 
 // IssueWatchConfig 定义 issue 入待办的过滤规则（由 webhook 触发，非轮询）。
@@ -165,6 +166,25 @@ func Default() *Config {
 		CI: CIConfig{
 			PRCheckOnEvents: []string{"pull_request"},
 		},
+		Task: TaskConfig{
+			Idempotency: true,
+			Workspace: WorkspaceConfig{
+				Mode:         "worktree",
+				KeepFailed:   true,
+				CleanupAfter: "72h",
+			},
+			Budget: BudgetConfig{
+				MaxSteps:    12,
+				MaxRetries:  3,
+				MaxDuration: "30m",
+				MaxCommands: 20,
+				MaxLLMCalls: 12,
+			},
+			Feedback: FeedbackConfig{
+				IgnoreKnownBotNoise:     true,
+				EscalateOnUnknownReview: true,
+			},
+		},
 	}
 }
 
@@ -205,6 +225,7 @@ func Load() (*Config, error) {
 	cfg.AI.normalize()
 	cfg.IssueAutomation.RefactorPR.Normalize()
 	cfg.Proxy.Normalize()
+	cfg.Task.Normalize()
 	expandEnv(cfg)
 	return cfg, nil
 }
