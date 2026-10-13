@@ -23,5 +23,8 @@ func ShouldRun() bool {
 
 // Run 执行 headless 主流程并返回退出码。
 func Run(cfg *config.Config) int {
+	if ShouldRunIssueToPR() {
+		return runIssueToPR(cfg)
+	}
 	return runPRCheck(cfg)
 }

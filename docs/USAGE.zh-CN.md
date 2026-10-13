@@ -346,3 +346,13 @@ OPS_AGENT_WEBHOOK_ONLY=1 ./ops-agent
 - 设计：`docs/DESIGN.md`
 - 路线图：`docs/ROADMAP.md`
 - 配置示例：`.ops-agent.yaml.example`
+
+## 11. Issue 到 draft PR（可选）
+
+默认关闭。在配置里设置 `task.issue_to_pr.enabled: true` 后，Webhook 命中的新 Issue 会额外写入任务队列。处理一条本地仓库任务：
+
+```bash
+OPS_AGENT_ISSUE_TO_PR=1 OPS_AGENT_LOCAL_REPO=/path/to/repo ./ops-agent
+```
+
+该入口只创建 draft PR，不合并、不关闭 Issue。任务存储默认是 `~/.local/share/ops-agent/tasks.json`，也可用 `task.store_path` 指定。

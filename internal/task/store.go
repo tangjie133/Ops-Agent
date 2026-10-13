@@ -143,6 +143,17 @@ func (s *FileStore) Update(in Task) error {
 	return s.saveLocked()
 }
 
+// List 返回全部任务。
+func (s *FileStore) List() []Task {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Task, 0, len(s.tasks))
+	for _, tk := range s.tasks {
+		out = append(out, tk)
+	}
+	return out
+}
+
 // GetByKey 按任务键读取任务。
 func (s *FileStore) GetByKey(key string) (Task, bool) {
 	s.mu.RLock()
