@@ -22,14 +22,18 @@
 
 ```text
 GitHub 事件 / TUI 指令
-    → Task 创建
+    → 幂等去重（TaskKey）
+    → Task 创建或复用
+    → workspace 分配独立工作区
+    → 反馈分类（CI / review / 冲突 / 噪音）
     → 上下文收集
     → 生成执行计划
-    → 执行修改或回复
+    → 预算检查后执行修改或回复
     → 验证测试
     → 风险评估与回踩
     → 写回 GitHub / 创建 PR
     → 经验沉淀到知识库
+    → workspace 按策略清理
 ```
 
 建议模块边界：
@@ -38,12 +42,15 @@ GitHub 事件 / TUI 指令
 internal/github       # 只封装 gh/GitHub 读写，不放业务决策
 internal/task         # 统一任务模型、状态机、队列、持久化
 internal/orchestrator # 编排 Task 每个阶段如何流转
+internal/workspace    # worktree、临时分支、沙箱目录、清理策略
 internal/executor     # 执行器接口：内置 Agent、插件、CLI、人工接管
 internal/verifier     # go test、repo_validate、arduino-cli、demo 检测
 internal/safety       # diff 评估、回踩、回滚建议、人工确认策略
+internal/feedback     # CI、review、冲突、bot 噪音等反馈分类
 internal/knowledge    # 自动学习、知识分层、检索注入
 internal/memory       # Task 运行日志、事件、结果
 internal/publisher    # GitHub 写回策略与动作
+internal/budget       # 单任务轮数、耗时、命令次数、模型成本限制
 internal/skill        # 稳定工作流定义和护栏
 internal/tui          # 人工审批、接管、查看日志
 internal/headless     # 后台/CI 运行入口
@@ -58,6 +65,7 @@ internal/webhook      # GitHub 事件入口
 - `issuewatch`、`todo` 逐步并入 `task`。
 - `worker` 被 `orchestrator` 替代。
 - `agent` 保留为 TUI 聊天入口，不再承担核心业务编排。
+- `repocontext.Workspace` 迁入 `workspace` 管理器，统一 clone / worktree / 清理。
 - `github/client.go` 保持工具层，后续拆成 issue、pr、repo、git 等文件。
 
 ## 3. Task 类型与状态机
@@ -99,6 +107,8 @@ created
 
 - 允许自动收集上下文、分析 Issue/PR、生成计划、修改代码、补 demo/测试、调用验证命令、创建或更新 PR、写入低风险知识记录。
 - 必须人工确认 merge PR、close issue、删除大量文件、force push、rebase 公共分支、破坏性回滚、安全敏感配置修改，以及置信度不足但影响面大的自动回复。
+- 每个 Task 必须有幂等键，避免 webhook 重复投递、CI 重跑或人工重复点击导致重复建分支、重复评论、重复开 PR。
+- 每个 Task 必须受预算策略限制，超过最大轮数、最大耗时、最大命令次数或最大模型成本后进入人工接管。
 
 回滚不是简单按钮，而是安全评估结果之一：
 
@@ -157,7 +167,98 @@ manual
 
 插件不得直接拥有 GitHub 写权限。插件只产出修改后的工作区、diff、执行日志、测试结果和风险声明。真正的 GitHub 写入由 `orchestrator + publisher + github` 统一处理。
 
-## 5. Skill、Knowledge 与 Memory
+## 5. Workspace、Budget、Feedback 与幂等
+
+同类项目普遍证明，长期自动化最容易失控的地方不是模型能力，而是工作区隔离、重复触发、失败反馈分类和运行成本。因此这些能力需要成为核心框架的一部分，而不是后续补丁。
+
+### 5.1 Workspace Manager
+
+`workspace` 负责所有临时工作目录和分支管理：
+
+```text
+internal/workspace/
+  manager.go      # 创建、复用、清理 Task 工作区
+  worktree.go     # git worktree / clone 策略
+  branch.go       # 临时分支命名、基线、清理
+  snapshot.go     # 执行前后状态快照
+```
+
+原则：
+
+- executor 和 verifier 都只能在 workspace 分配的目录内运行。
+- 默认策略为独立 git worktree；无法创建 worktree 时回退为临时 clone。不直接改用户当前工作区。
+- 所有修改前后都记录 git 状态、diff 摘要和基线 commit。
+- workspace 清理必须可配置，失败任务默认保留 72 小时方便排查。
+
+### 5.2 Budget Policy
+
+`budget` 限制单个 Task 的资源消耗，防止自动化无限循环。
+
+```text
+internal/budget/
+  policy.go       # 预算配置与默认值
+  meter.go        # 记录 step、命令、耗时、token/成本
+  decision.go     # 是否允许继续执行
+```
+
+预算维度：
+
+```text
+max_steps
+max_retries
+max_duration
+max_commands
+max_llm_calls
+max_estimated_cost
+```
+
+超过预算时，Task 不继续自动修复，进入 `needs_manual_intervention`，并把当前上下文、失败原因和建议下一步展示给 TUI。第一轮可以只强制 `max_steps`、`max_retries`、`max_duration`、`max_commands`、`max_llm_calls`；`max_estimated_cost` 先记录、不阻断。
+
+### 5.3 Feedback Classifier
+
+`feedback` 把外部反馈转成结构化信号，避免 Agent 把所有评论或日志都当成同一类问题。
+
+```text
+internal/feedback/
+  classifier.go   # 反馈分类入口
+  ci.go           # CI 失败分类
+  review.go       # PR review / inline comment 分类
+  conflict.go     # merge conflict 分类
+  bot.go          # bot 噪音、重复提示、低价值评论过滤
+```
+
+分类结果：
+
+```text
+fix_code       # 需要代码修改
+fix_test       # 测试或 demo 需要补充
+fix_config     # CI / Arduino / repo 配置问题
+ignore_noise   # bot 噪音或重复提示
+wait           # CI 仍在运行，暂不处理
+escalate       # 需要人工判断
+```
+
+职责边界：`feedback` 只解释外部信号该怎么处理；`safety` 再根据当前 diff、测试结果和风险决定是否继续、发 PR 或回滚。第一轮 `issue_to_pr` 只需最小分类器：本地 verifier 失败视为 `fix_code` 或 `fix_test`，未知 GitHub 评论一律 `escalate`。完整 CI/review/bot 分类放到后续阶段。
+
+### 5.4 幂等与去重
+
+幂等分两层，避免把“同一 Issue 重复 webhook”和“同一 Issue 的新评论/新失败”混在一起：
+
+```text
+TaskKey（去重任务）:
+  repo + task_type + source_kind + source_number
+  例如 owner/repo + issue_to_pr + issue + 45
+  同一 Issue 的重复 webhook 复用已有 Task，不新建。
+
+RunKey（去重单次执行）:
+  TaskKey + trigger_hash
+  trigger_hash 来自 comment id、check run id、label 变更或 TUI 手动重跑时间。
+  同一触发内容重放则跳过；新评论或新 CI 失败则开新 Run。
+```
+
+写回 GitHub 前也要检查已有记录，避免重复评论、重复 PR、重复分支。Task、Run、Publisher 动作都要有独立 ID，方便审计和重试。活跃 Task 不允许并行 Run；新 Run 必须等当前 Run 结束或被取消。
+
+## 6. Skill、Knowledge 与 Memory
 
 知识系统拆成三层：
 
@@ -210,7 +311,7 @@ last_success_time
 
 原则：RAG 可以建议，Skill 负责约束，Safety 负责最终拦截。
 
-## 6. 验证、Arduino CLI 与回踩
+## 7. 验证、Arduino CLI 与回踩
 
 验证系统独立成 `verifier`。执行器负责修改，验证器负责证明修改是否成立，安全模块负责判断修改是否值得保留。
 
@@ -282,7 +383,7 @@ block
 - 非破坏性回滚可以撤销本次 Task 工作区变更、删除临时分支、标记 Task 状态并记录失败经验。
 - 破坏性或远端回滚必须人工确认，包括 revert 已推送 commit、force push、关闭 PR、修改已发布内容。
 
-## 7. GitHub 写回策略
+## 8. GitHub 写回策略
 
 GitHub 写回集中放在 `publisher`，executor、plugin、verifier 不直接写 GitHub。
 
@@ -336,7 +437,7 @@ internal/github/
 
 业务策略不要写进 `github`。例如“什么情况下创建 draft PR”属于 `publisher/policy`，不是 `github.PRCreate` 的职责。
 
-## 8. 运行形态
+## 9. 运行形态
 
 系统采用混合模式：
 
@@ -365,19 +466,45 @@ Daemon 负责 webhook、Task 队列、编排、通知和学习。
 
 CI 只做一次性验证，输出明确 exit code，不维护长期队列。
 
-## 9. 迁移路线
+配置需要补充 workspace、budget、feedback 和幂等策略：
+
+```yaml
+workspace:
+  mode: worktree
+  keep_failed: true
+  cleanup_after: 72h
+
+budget:
+  max_steps: 12
+  max_retries: 3
+  max_duration: 30m
+  max_commands: 20
+  max_llm_calls: 12
+
+feedback:
+  ignore_known_bot_noise: true
+  escalate_on_unknown_review: true
+
+task:
+  idempotency: true
+```
+
+## 10. 迁移路线
 
 阶段 1：建立新核心骨架。
 
 ```text
 internal/task
 internal/orchestrator
+internal/workspace
 internal/executor
 internal/verifier
 internal/safety
+internal/feedback
 internal/knowledge
 internal/memory
 internal/publisher
+internal/budget
 internal/skill
 ```
 
@@ -385,13 +512,17 @@ internal/skill
 
 ```text
 Issue webhook / TUI 指令
+  → TaskKey 去重
   → issue_to_pr Task
+  → workspace 分配 worktree
   → 收集上下文
+  → budget 检查
   → internal-agent 修改代码
   → verifier 跑测试
   → safety 判断
   → publisher 创建 draft PR
-  → knowledge 记录经验
+  → memory 记录结果
+  → workspace 按策略清理
 ```
 
 阶段 3：加入插件执行器。
@@ -407,25 +538,49 @@ Issue webhook / TUI 指令
 ```text
 1. Task 核心模型
 2. issue_to_pr Task
-3. internal-agent 执行器适配旧 refactor
-4. verifier 跑 go test / repo_validate
-5. safety 基础 diff 风险判断
-6. publisher 创建 draft PR
-7. memory 记录任务结果
+3. workspace manager 管理独立 worktree / 临时分支
+4. internal-agent 执行器适配旧 refactor
+5. verifier 跑 go test / repo_validate
+6. safety 基础 diff 风险判断
+7. budget policy 限制自动化轮数和耗时
+8. publisher 创建 draft PR
+9. memory 记录任务结果
+10. Task 幂等键防重复触发
 ```
 
 暂缓范围：
 
 - 完整插件系统。
 - 完整 Arduino CLI matrix。
+- 完整 feedback classifier（CI/review/bot 噪音）。第一轮只保留最小分类桩。
+- `max_estimated_cost` 超限阻断。第一轮只记录成本，不因费用停任务。
 - 自动更新 Skill。
 - 全自动 merge / close issue。
 - 高级 TUI 布局。
 
-## 10. 设计自审
+## 11. 设计自审
 
 - 无占位要求：本文中“暂缓范围”均为明确后续阶段，不作为当前设计缺口。
-- 架构一致性：Task 是唯一业务编排核心，executor、verifier、safety、publisher 各自收口。
+- 架构一致性：Task 是唯一业务编排核心；workspace 管隔离，budget 管消耗，feedback 管外部信号，safety 管风险决策，publisher 管 GitHub 写回。
 - 范围控制：第一轮只实现 `issue_to_pr` 闭环，避免一次性实现所有自动化场景。
 - 风险边界：GitHub 高风险写操作、破坏性回滚、merge/close 等动作均需要人工确认。
 - 知识边界：RAG 存事实和经验，Skill 存流程和护栏，Safety 做最终拦截。
+- 扩展边界：新增业务能力优先新增 TaskType、Skill、Verifier、Executor 或 Feedback 分类，不直接改 GitHub 工具层。
+
+## 12. 参考项目与设计启发
+
+本设计参考了若干公开项目的能力边界，不直接照搬实现：
+
+- ShipIT Forge：Issue 修复、PR review、CI 自动修复；关键启发是 Agent 可以自动开 PR，但不自动 merge 或 approve。
+- Drydock：本地优先的 Issue 到 PR 队列、CI babysitting、成本跟踪；关键启发是本地 dashboard、队列和预算控制很重要。
+- Optio：任务到 PR 生命周期编排；关键启发是 CI、review feedback、merge readiness 的反馈回路比单次代码生成更重要。
+- PR-Agent：PR review、improve、ask、similar issue；关键启发是工具能力边界清晰，但完整修复闭环需要额外编排层。
+- Aider workflows / Aiderbot：Issue label 或 webhook 触发代码 Agent 生成 PR；关键启发是代码修改能力适合作为 executor 插件。
+- Refix / oh-my-pr / pr-shepherd：PR 评论、CI 失败、merge conflict 自动处理；关键启发是必须有反馈分类、重试上限和人工升级。
+
+由这些项目反推，Ops-Agent 应坚持：
+
+- 编排核心自有，代码修改器可插件化。
+- 默认交付 PR，不默认 merge。
+- 验证、风险评估、预算、幂等必须是核心能力。
+- 知识库学习是差异化能力，但必须受 Skill 和 Safety 约束。
