@@ -118,3 +118,21 @@ lib_test:
 ci:
   pr_check_on_events:
     - pull_request
+
+task:
+  idempotency: true
+  issue_to_pr:
+    enabled: true
+  workspace:
+    mode: worktree
+    keep_failed: true
+    cleanup_after: 72h
+  budget:
+    max_steps: 12
+    max_retries: 3
+    max_duration: 30m
+    max_commands: 20
+    max_llm_calls: 12
+  feedback:
+    ignore_known_bot_noise: true
+    escalate_on_unknown_review: true

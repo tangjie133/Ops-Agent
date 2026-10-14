@@ -16,7 +16,7 @@ func IsAgentReply(body, footer string) bool {
 	if footer != "" && strings.Contains(body, footer) {
 		return true
 	}
-	return strings.Contains(body, "_Posted by Ops-Agent")
+	return strings.Contains(body, "_Posted by Ops-Agent") || strings.Contains(body, "Handled by Ops-Agent")
 }
 
 // Selection 评论筛选结果统计。

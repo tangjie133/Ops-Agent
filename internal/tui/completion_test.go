@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/ZzedJay/Ops-Agent/internal/todo"
+	"github.com/ZzedJay/Ops-Agent/internal/task"
 )
 
 func TestCompleteCommandPrefix(t *testing.T) {
@@ -24,7 +24,7 @@ func TestCompleteModeCommand(t *testing.T) {
 }
 
 func TestCompleteIssueFromTodos(t *testing.T) {
-	todos := []todo.Item{{Repo: "o/r", Number: 42, Title: "hello world"}}
+	todos := []task.Task{{Repo: "o/r", SourceNumber: 42, Title: "hello world"}}
 	got := computeCompletions("/issue ", todos)
 	if len(got) != 1 || got[0].Text != "/issue o/r#42" {
 		t.Fatalf("got %v", got)

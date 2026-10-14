@@ -62,7 +62,7 @@ cp .ops-agent.yaml.example .ops-agent.yaml
 2. 当前目录 `.ops-agent.yaml`
 3. `~/.config/ops-agent/config.yaml`
 
-待办数据保存在：`~/.local/share/ops-agent/todo.json`
+任务数据保存在：`~/.local/share/ops-agent/tasks.json`
 
 验收队列与克隆目录：
 
@@ -346,3 +346,13 @@ OPS_AGENT_WEBHOOK_ONLY=1 ./ops-agent
 - 设计：`docs/DESIGN.md`
 - 路线图：`docs/ROADMAP.md`
 - 配置示例：`.ops-agent.yaml.example`
+
+## 11. Issue 到 draft PR（可选）
+
+默认开启。Webhook 命中的新 Issue 会写入 `tasks.json`。TUI 后台会处理队列。也可以单独跑一条：
+
+```bash
+OPS_AGENT_ISSUE_TO_PR=1 OPS_AGENT_LOCAL_REPO=/path/to/repo ./ops-agent
+```
+
+该入口只创建 draft PR，不合并、不关闭 Issue。任务存储默认是 `~/.local/share/ops-agent/tasks.json`，也可用 `task.store_path` 指定。

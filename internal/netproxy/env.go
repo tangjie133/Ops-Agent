@@ -28,6 +28,13 @@ func Environ(base []string, proxy config.ProxyConfig) []string {
 	}
 	if hsp := proxy.EffectiveHTTPS(); hsp != "" {
 		out = append(out, "HTTPS_PROXY="+hsp, "https_proxy="+hsp)
+		out = append(out,
+			"GIT_CONFIG_COUNT=2",
+			"GIT_CONFIG_KEY_0=http.proxy",
+			"GIT_CONFIG_VALUE_0="+hsp,
+			"GIT_CONFIG_KEY_1=https.proxy",
+			"GIT_CONFIG_VALUE_1="+hsp,
+		)
 	}
 	if np := proxy.NoProxy; np != "" {
 		out = append(out, "NO_PROXY="+np, "no_proxy="+np)
@@ -39,8 +46,12 @@ func stripProxyKeys(env []string) []string {
 	var out []string
 	for _, e := range env {
 		key, _, _ := strings.Cut(e, "=")
-		switch strings.ToUpper(key) {
-		case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY":
+		uk := strings.ToUpper(key)
+		switch uk {
+		case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "GIT_CONFIG_COUNT":
+			continue
+		}
+		if strings.HasPrefix(uk, "GIT_CONFIG_KEY_") || strings.HasPrefix(uk, "GIT_CONFIG_VALUE_") {
 			continue
 		}
 		out = append(out, e)

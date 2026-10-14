@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ZzedJay/Ops-Agent/internal/todo"
+	"github.com/ZzedJay/Ops-Agent/internal/task"
 )
 
 // Completion 表示一条 Tab 补全候选（整行文本 + 提示）。
@@ -36,7 +36,7 @@ var slashCommands = []commandSpec{
 	{name: "/feedback", hint: "反馈（M4）"},
 }
 
-func computeCompletions(line string, todos []todo.Item) []Completion {
+func computeCompletions(line string, todos []task.Task) []Completion {
 	if line == "" || !strings.HasPrefix(line, "/") {
 		return nil
 	}
@@ -113,7 +113,7 @@ func argCompletions(spec commandSpec, parts []string, trailingSpace bool) []Comp
 	return out
 }
 
-func issueCompletions(parts []string, trailingSpace bool, todos []todo.Item) []Completion {
+func issueCompletions(parts []string, trailingSpace bool, todos []task.Task) []Completion {
 	if len(parts) == 1 && !trailingSpace {
 		return []Completion{{Text: "/issue ", Hint: "issue 编号"}}
 	}
@@ -121,7 +121,7 @@ func issueCompletions(parts []string, trailingSpace bool, todos []todo.Item) []C
 		prefix := parts[1]
 		var out []Completion
 		for _, it := range todos {
-			num := fmt.Sprintf("%d", it.Number)
+			num := fmt.Sprintf("%d", it.SourceNumber)
 			ref := it.Repo + "#" + num
 			if strings.HasPrefix(ref, prefix) || strings.HasPrefix(num, prefix) {
 				out = append(out, Completion{
@@ -136,7 +136,7 @@ func issueCompletions(parts []string, trailingSpace bool, todos []todo.Item) []C
 		var out []Completion
 		for _, it := range todos {
 			out = append(out, Completion{
-				Text: "/issue " + it.Repo + "#" + fmt.Sprintf("%d", it.Number),
+				Text: "/issue " + it.Repo + "#" + fmt.Sprintf("%d", it.SourceNumber),
 				Hint: truncate(it.Title, 24),
 			})
 		}

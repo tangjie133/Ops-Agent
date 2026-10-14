@@ -29,13 +29,13 @@ type User struct {
 }
 
 type Issue struct {
-	Number       int          `json:"number"`
-	Title        string       `json:"title"`
-	State        string       `json:"state"`
-	HTMLURL      string       `json:"html_url"`
-	Labels       []Label      `json:"labels"`
-	Assignees    []Assignee   `json:"assignees"`
-	PullRequest  *PullRequest `json:"pull_request,omitempty"`
+	Number      int          `json:"number"`
+	Title       string       `json:"title"`
+	State       string       `json:"state"`
+	HTMLURL     string       `json:"html_url"`
+	Labels      []Label      `json:"labels"`
+	Assignees   []Assignee   `json:"assignees"`
+	PullRequest *PullRequest `json:"pull_request,omitempty"`
 }
 
 type PullRequest struct {
@@ -56,9 +56,9 @@ type Repository struct {
 }
 
 type PullRequestEvent struct {
-	Action     string       `json:"action"`
+	Action      string             `json:"action"`
 	PullRequest PullRequestPayload `json:"pull_request"`
-	Repository Repository   `json:"repository"`
+	Repository  Repository         `json:"repository"`
 }
 
 type PullRequestPayload struct {
@@ -73,8 +73,8 @@ type PushEvent struct {
 }
 
 type ReleaseEvent struct {
-	Action     string `json:"action"`
-	Release    struct {
+	Action  string `json:"action"`
+	Release struct {
 		TagName string `json:"tag_name"`
 		Name    string `json:"name"`
 	} `json:"release"`

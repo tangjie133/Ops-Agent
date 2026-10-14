@@ -4,36 +4,33 @@ package webhook
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"sync"
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
-	"github.com/ZzedJay/Ops-Agent/internal/issueapproval"
-	"github.com/ZzedJay/Ops-Agent/internal/issuewatch"
-	"github.com/ZzedJay/Ops-Agent/internal/libtest"
-	"github.com/ZzedJay/Ops-Agent/internal/todo"
+	"github.com/ZzedJay/Ops-Agent/internal/orchestrator"
+	"github.com/ZzedJay/Ops-Agent/internal/task"
 )
 
-// Handler 处理 GitHub Webhook HTTP 请求，解析事件并更新待办/验收队列。
+// Handler 处理 GitHub Webhook HTTP 请求，解析事件并更新任务/验收队列。
 type Handler struct {
 	cfg            *config.Config
-	store          *todo.FileStore
-	libTest        *libtest.FileStore
+	tasks          *task.FileStore
 	onEvent        OnEvent
 	logger         *log.Logger
 	secretWarnOnce sync.Once
 }
 
-func NewHandler(cfg *config.Config, store *todo.FileStore, libTest *libtest.FileStore, onEvent OnEvent, logger *log.Logger) *Handler {
+func NewHandler(cfg *config.Config, tasks *task.FileStore, onEvent OnEvent, logger *log.Logger) *Handler {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
 	}
 	return &Handler{
 		cfg:     cfg,
-		store:   store,
-		libTest: libTest,
+		tasks:   tasks,
 		onEvent: onEvent,
 		logger:  logger,
 	}
@@ -78,12 +75,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handlePullRequest(w, body)
 	case "issue_comment":
 		h.handleIssueComment(w, body)
-	case "push":
-		h.handlePush(w, body)
-	case "release":
-		h.handleRelease(w, body)
-	case "repository":
-		h.handleRepository(w, body)
 	case "ping":
 		h.emit(Event{Kind: EventPing})
 		w.WriteHeader(http.StatusOK)
@@ -119,104 +110,59 @@ func (h *Handler) handleIssues(w http.ResponseWriter, body []byte) {
 }
 
 func (h *Handler) handleIssueOpened(w http.ResponseWriter, repo string, evt IssuesEvent) {
-	number := evt.Issue.Number
-	title := evt.Issue.Title
-
-	if !h.cfg.IssueWatch.Enabled {
-		writeEnqueueSkip(w, "issue_watch disabled")
-		return
-	}
-
-	ghIssue := evt.Issue.ToGitHubIssue()
-	res, err := issuewatch.Enqueue(h.cfg, h.store, repo, ghIssue)
-	if err != nil {
-		h.logger.Printf("webhook · 入队失败 %s#%d: %v", repo, number, err)
-		http.Error(w, "enqueue failed", http.StatusInternalServerError)
-		return
-	}
-
-	if res.Added {
-		h.emit(Event{
-			Kind:   EventAdded,
-			Repo:   repo,
-			Number: res.Item.Number,
-			Title:  res.Item.Title,
-		})
-		writeJSON(w, map[string]any{"ok": true, "added": true, "repo": repo, "number": res.Item.Number})
-		return
-	}
-	if silentEnqueueReason(res.Reason) {
-		writeEnqueueSkip(w, res.Reason)
-		return
-	}
-	h.emit(Event{
-		Kind:   EventSkipped,
-		Repo:   repo,
-		Number: number,
-		Title:  title,
-		Reason: res.Reason,
-	})
-	writeEnqueueSkip(w, res.Reason)
+	h.enqueueIssue(w, repo, evt, EventAdded)
 }
 
 func (h *Handler) handleIssueClosed(w http.ResponseWriter, repo string, number int, title string) {
-	res, err := issuewatch.RemoveClosed(h.store, repo, number)
+	if h.tasks == nil {
+		writeEnqueueSkip(w, "no task store")
+		return
+	}
+	removed, err := h.tasks.CancelIssue(repo, number)
 	if err != nil {
 		h.logger.Printf("webhook · 关闭同步失败 %s#%d: %v", repo, number, err)
 		http.Error(w, "sync failed", http.StatusInternalServerError)
 		return
 	}
-	if res.Removed {
+	if removed {
 		h.emit(Event{Kind: EventClosed, Repo: repo, Number: number, Title: title})
 		writeJSON(w, map[string]any{"ok": true, "removed": true, "repo": repo, "number": number})
 		return
 	}
-	if silentEnqueueReason(res.Reason) {
-		writeRemoveSkip(w, res.Reason)
-		return
-	}
-	h.emit(Event{
-		Kind:   EventSkipped,
-		Repo:   repo,
-		Number: number,
-		Title:  title,
-		Reason: res.Reason,
-	})
-	writeRemoveSkip(w, res.Reason)
+	writeRemoveSkip(w, "no active task")
 }
 
 func (h *Handler) handleIssueReopened(w http.ResponseWriter, repo string, evt IssuesEvent) {
+	h.enqueueIssue(w, repo, evt, EventReopened)
+}
+
+func (h *Handler) enqueueIssue(w http.ResponseWriter, repo string, evt IssuesEvent, kind EventKind) {
 	number := evt.Issue.Number
-	title := evt.Issue.Title
+	if h.cfg == nil || !h.cfg.Task.IssueToPR.Enabled {
+		writeEnqueueSkip(w, "issue_to_pr disabled")
+		return
+	}
+	if h.tasks == nil {
+		h.logger.Printf("webhook · task store 未接入 %s#%d", repo, number)
+		http.Error(w, "task store missing", http.StatusInternalServerError)
+		return
+	}
 	ghIssue := evt.Issue.ToGitHubIssue()
-	res, err := issuewatch.Reopen(h.cfg, h.store, repo, ghIssue)
+	created, tk, err := orchestrator.EnqueueIssue(h.cfg, h.tasks, repo, ghIssue, fmt.Sprintf("issues:%s:%d", evt.Action, number))
 	if err != nil {
-		h.logger.Printf("webhook · 重开失败 %s#%d: %v", repo, number, err)
-		http.Error(w, "reopen failed", http.StatusInternalServerError)
+		h.logger.Printf("webhook · task 入队失败 %s#%d: %v", repo, number, err)
+		http.Error(w, "enqueue failed", http.StatusInternalServerError)
 		return
 	}
-	if res.Added {
-		h.emit(Event{
-			Kind:   EventReopened,
-			Repo:   repo,
-			Number: res.Item.Number,
-			Title:  res.Item.Title,
-		})
-		writeJSON(w, map[string]any{"ok": true, "added": true, "repo": repo, "number": res.Item.Number})
-		return
+	if !created {
+		if _, tk, err = h.tasks.RequeueIssue(repo, number); err != nil {
+			h.logger.Printf("webhook · task 重新入队失败 %s#%d: %v", repo, number, err)
+			http.Error(w, "enqueue failed", http.StatusInternalServerError)
+			return
+		}
 	}
-	if silentEnqueueReason(res.Reason) {
-		writeEnqueueSkip(w, res.Reason)
-		return
-	}
-	h.emit(Event{
-		Kind:   EventSkipped,
-		Repo:   repo,
-		Number: number,
-		Title:  title,
-		Reason: res.Reason,
-	})
-	writeEnqueueSkip(w, res.Reason)
+	h.emit(Event{Kind: kind, Repo: repo, Number: tk.SourceNumber, Title: tk.Title})
+	writeJSON(w, map[string]any{"ok": true, "added": true, "repo": repo, "number": tk.SourceNumber})
 }
 
 func (h *Handler) handlePullRequest(w http.ResponseWriter, body []byte) {
@@ -226,16 +172,25 @@ func (h *Handler) handlePullRequest(w http.ResponseWriter, body []byte) {
 		return
 	}
 
+	if evt.Action != "opened" {
+		writeJSON(w, map[string]any{"ok": true, "skipped": evt.Action})
+		return
+	}
 	repo := evt.Repository.FullName
 	number := evt.PullRequest.Number
 	title := evt.PullRequest.Title
-
-	switch evt.Action {
-	case "closed":
-		h.handleIssueClosed(w, repo, number, title)
-	default:
-		writeJSON(w, map[string]any{"ok": true, "skipped": evt.Action})
+	created, tk, err := orchestrator.EnqueuePR(h.cfg, h.tasks, repo, number, title, "")
+	if err != nil {
+		h.logger.Printf("webhook · pr 入队失败 %s#%d: %v", repo, number, err)
+		http.Error(w, "enqueue failed", http.StatusInternalServerError)
+		return
 	}
+	if !created {
+		writeJSON(w, map[string]any{"ok": true, "added": false, "repo": repo, "number": tk.SourceNumber})
+		return
+	}
+	h.emit(Event{Kind: EventAdded, Repo: repo, Number: tk.SourceNumber, Title: tk.Title})
+	writeJSON(w, map[string]any{"ok": true, "added": true, "repo": repo, "number": tk.SourceNumber})
 }
 
 func (h *Handler) handleIssueComment(w http.ResponseWriter, body []byte) {
@@ -258,81 +213,29 @@ func (h *Handler) handleIssueComment(w http.ResponseWriter, body []byte) {
 		writeEnqueueSkip(w, "own auto reply")
 		return
 	}
-
-	if !h.cfg.IssueWatch.Enabled {
-		writeEnqueueSkip(w, "issue_watch disabled")
+	if h.cfg == nil || !h.cfg.Task.IssueToPR.Enabled {
+		writeEnqueueSkip(w, "issue_to_pr disabled")
 		return
 	}
 
-	if issueapproval.IsApprovePRComment(evt.Comment.Body) {
-		h.handleApprovePR(w, repo, number, title)
-		return
-	}
-
+	_ = title
 	ghIssue := evt.Issue.ToGitHubIssue()
-	res, err := issuewatch.EnqueueOnComment(h.cfg, h.store, repo, ghIssue)
+	if h.tasks == nil {
+		http.Error(w, "task store missing", http.StatusInternalServerError)
+		return
+	}
+	created, tk, err := orchestrator.EnqueueIssue(h.cfg, h.tasks, repo, ghIssue, fmt.Sprintf("comment:%d:%d", number, len(evt.Comment.Body)))
 	if err != nil {
 		h.logger.Printf("webhook · 评论入队失败 %s#%d: %v", repo, number, err)
 		http.Error(w, "enqueue failed", http.StatusInternalServerError)
 		return
 	}
-
-	if res.Added {
-		kind := EventCommentAdded
-		h.emit(Event{
-			Kind:   kind,
-			Repo:   repo,
-			Number: res.Item.Number,
-			Title:  res.Item.Title,
-		})
-		writeJSON(w, map[string]any{"ok": true, "added": true, "repo": repo, "number": res.Item.Number})
+	if !created && tk.Status != task.StatusCreated {
+		writeEnqueueSkip(w, "already handled")
 		return
 	}
-
-	reason := res.Reason
-	if silentEnqueueReason(reason) {
-		writeEnqueueSkip(w, reason)
-		return
-	}
-
-	h.emit(Event{
-		Kind:   EventSkipped,
-		Repo:   repo,
-		Number: number,
-		Title:  title,
-		Reason: reason,
-	})
-	writeEnqueueSkip(w, reason)
-}
-
-func (h *Handler) handleApprovePR(w http.ResponseWriter, repo string, number int, title string) {
-	if !h.cfg.IssueAutomation.RefactorPR.CommentApprovalEnabled() {
-		writeEnqueueSkip(w, "refactor_pr comment approval disabled")
-		return
-	}
-	res, err := issuewatch.ConfirmFixPR(h.store, repo, number)
-	if err != nil {
-		h.logger.Printf("webhook · /approve-pr 失败 %s#%d: %v", repo, number, err)
-		http.Error(w, "confirm fix failed", http.StatusInternalServerError)
-		return
-	}
-	if res.Confirmed {
-		h.emit(Event{
-			Kind:   EventFixConfirmed,
-			Repo:   repo,
-			Number: res.Item.Number,
-			Title:  res.Item.Title,
-		})
-		writeJSON(w, map[string]any{"ok": true, "fix_confirmed": true, "repo": repo, "number": res.Item.Number})
-		return
-	}
-	reason := res.Reason
-	if silentEnqueueReason(reason) {
-		writeEnqueueSkip(w, reason)
-		return
-	}
-	h.emit(Event{Kind: EventSkipped, Repo: repo, Number: number, Title: title, Reason: reason})
-	writeEnqueueSkip(w, reason)
+	h.emit(Event{Kind: EventCommentAdded, Repo: repo, Number: number, Title: tk.Title})
+	writeJSON(w, map[string]any{"ok": true, "added": true, "repo": repo, "number": number})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

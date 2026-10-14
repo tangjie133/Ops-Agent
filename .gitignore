@@ -20,6 +20,9 @@
 # Local config (may contain secrets)
 .ops-agent.yaml
 
+# Isolated implementation worktrees
+.worktrees/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -9,21 +9,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
-	"github.com/ZzedJay/Ops-Agent/internal/libtest"
-	"github.com/ZzedJay/Ops-Agent/internal/todo"
+	"github.com/ZzedJay/Ops-Agent/internal/task"
 )
 
 // Run 启动 TUI 主循环：加载 store、初始化 Webhook 运行时、进入 bubbletea Program。
 func Run(cfg *config.Config) error {
-	store, err := todo.Load(config.TodoStorePath())
+	tasks, err := task.Load(config.TaskStorePath(cfg))
 	if err != nil {
-		return fmt.Errorf("todo store: %w", err)
+		return fmt.Errorf("task store: %w", err)
 	}
-	libTestStore, err := libtest.Load(config.LibTestStorePath())
-	if err != nil {
-		return fmt.Errorf("libtest store: %w", err)
-	}
-
 	startLogPersistWorker()
 	diagStartupNote()
 	initBackgroundLog()
@@ -31,14 +25,13 @@ func Run(cfg *config.Config) error {
 	runCtx, runCancel := context.WithCancel(context.Background())
 	defer runCancel()
 
-	m := NewModel(cfg, store, libTestStore, nil)
+	m := NewModel(cfg, tasks, nil)
 	m.runCtx = runCtx
-	m.bindInvestigatorLog()
 
 	p := tea.NewProgram(&m, tea.WithAltScreen(), tea.WithFPS(15), tea.WithMouseCellMotion())
 
 	// Webhook 只写 store/日志，不 Post 到 TUI；UI 由 refresh tick 轮询磁盘。
-	runtime := NewWebhookRuntime(cfg, store, libTestStore, nil)
+	runtime := NewWebhookRuntime(cfg, tasks, nil)
 	m.whRuntime = runtime
 
 	shutdown := func() {

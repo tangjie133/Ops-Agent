@@ -10,12 +10,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 )
-
-const defaultTimeout = 120 * time.Second
 
 // Client 调用配置的 BaseURL + Model 进行对话补全。
 type Client struct {
@@ -24,13 +21,11 @@ type Client struct {
 	apiURL string
 }
 
-// NewClient 根据 AIConfig 构造 HTTP 客户端。
+// NewClient 根据 AIConfig 构造 HTTP 客户端。单次请求不设固定超时，由调用方的 ctx 决定等待多久。
 func NewClient(cfg config.AIConfig) *Client {
 	return &Client{
-		cfg: cfg,
-		http: &http.Client{
-			Timeout: defaultTimeout,
-		},
+		cfg:    cfg,
+		http:   &http.Client{},
 		apiURL: chatCompletionsURL(cfg.BaseURL),
 	}
 }
@@ -51,13 +46,16 @@ type chatRequest struct {
 }
 
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role             string          `json:"role"`
+	Content          json.RawMessage `json:"content"`
+	ReasoningContent string          `json:"reasoning_content"`
+	Reasoning        string          `json:"reasoning"`
 }
 
 type chatResponse struct {
 	Choices []struct {
 		Message chatMessage `json:"message"`
+		Text    string      `json:"text"`
 	} `json:"choices"`
 	Error *struct {
 		Message string `json:"message"`
@@ -94,7 +92,8 @@ func (c *Client) ChatMessages(ctx context.Context, msgs []Message) (string, erro
 
 	apiMsgs := make([]chatMessage, len(msgs))
 	for i, m := range msgs {
-		apiMsgs[i] = chatMessage{Role: m.Role, Content: m.Content}
+		raw, _ := json.Marshal(m.Content)
+		apiMsgs[i] = chatMessage{Role: m.Role, Content: raw}
 	}
 
 	body, err := json.Marshal(chatRequest{
@@ -121,7 +120,7 @@ func (c *Client) ChatMessages(ctx context.Context, msgs []Message) (string, erro
 	}
 	defer resp.Body.Close()
 
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
 		return "", err
 	}
@@ -136,8 +135,47 @@ func (c *Client) ChatMessages(ctx context.Context, msgs []Message) (string, erro
 	if resp.StatusCode >= 400 {
 		return "", fmt.Errorf("ai http %s: %s", resp.Status, strings.TrimSpace(string(raw)))
 	}
-	if len(out.Choices) == 0 || strings.TrimSpace(out.Choices[0].Message.Content) == "" {
+	if len(out.Choices) == 0 {
 		return "", fmt.Errorf("ai returned empty content")
 	}
-	return strings.TrimSpace(out.Choices[0].Message.Content), nil
+	text := choiceText(out.Choices[0].Message, out.Choices[0].Text)
+	if text == "" {
+		return "", fmt.Errorf("ai returned empty content")
+	}
+	return text, nil
+}
+
+func choiceText(msg chatMessage, fallback string) string {
+	if s := strings.TrimSpace(decodeMessageContent(msg.Content)); s != "" {
+		return s
+	}
+	if s := strings.TrimSpace(msg.ReasoningContent); s != "" {
+		return s
+	}
+	if s := strings.TrimSpace(msg.Reasoning); s != "" {
+		return s
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func decodeMessageContent(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &parts); err == nil {
+		var b strings.Builder
+		for _, p := range parts {
+			b.WriteString(p.Text)
+		}
+		return b.String()
+	}
+	return strings.Trim(string(raw), `"`)
 }

@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ZzedJay/Ops-Agent/internal/todo"
+	"github.com/ZzedJay/Ops-Agent/internal/task"
 )
 
 // parseIssueArgs 解析 /issue 参数，支持 owner/repo#n、owner/repo n、或仅编号（从待办反查仓库）。
-func parseIssueArgs(parts []string, store *todo.FileStore, cwdRepo string) (repo string, num int, err string) {
+func parseIssueArgs(parts []string, store *task.FileStore, cwdRepo string) (repo string, num int, err string) {
 	if len(parts) < 2 {
 		return "", 0, "用法: /issue owner/repo#n 或 /issue owner/repo n"
 	}
@@ -54,14 +54,14 @@ func splitRepoIssue(token string) (repo string, num int, ok bool) {
 	return token[:i], n, true
 }
 
-func lookupIssueRepo(store *todo.FileStore, num int, cwdRepo string) (repo string, ok bool, err string) {
-	var active []todo.Item
+func lookupIssueRepo(store *task.FileStore, num int, cwdRepo string) (repo string, ok bool, err string) {
+	var active []task.Task
 	for _, it := range store.List() {
-		if it.Number != num {
+		if it.SourceNumber != num {
 			continue
 		}
 		switch it.Status {
-		case todo.StatusDismissed, todo.StatusDone:
+		case task.StatusCancelled, task.StatusDone, task.StatusRolledBack:
 			continue
 		}
 		active = append(active, it)
@@ -77,7 +77,7 @@ func lookupIssueRepo(store *todo.FileStore, num int, cwdRepo string) (repo strin
 	default:
 		var refs []string
 		for _, it := range active {
-			refs = append(refs, fmt.Sprintf("%s#%d", it.Repo, it.Number))
+			refs = append(refs, fmt.Sprintf("%s#%d", it.Repo, it.SourceNumber))
 		}
 		return "", false, "多个待办匹配 #" + strconv.Itoa(num) + "，请指定仓库:\n  /issue " + strings.Join(refs, "\n  /issue ")
 	}

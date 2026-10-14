@@ -8,17 +8,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
-	"github.com/charmbracelet/bubbles/cursor"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ZzedJay/Ops-Agent/internal/ai"
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
-	"github.com/ZzedJay/Ops-Agent/internal/libtest"
-	"github.com/ZzedJay/Ops-Agent/internal/todo"
+	"github.com/ZzedJay/Ops-Agent/internal/task"
 )
 
 type spinnerTickMsg struct{} // deprecated: spinner 由 refresh tick 驱动
@@ -43,8 +42,7 @@ type webhookStartedMsg struct {
 type Model struct {
 	cfg            *config.Config
 	gh             *github.Client
-	store          *todo.FileStore
-	libTestStore   *libtest.FileStore
+	tasks          *task.FileStore
 	whRuntime      *WebhookRuntime
 	input          textinput.Model
 	outputViewport viewport.Model
@@ -58,72 +56,27 @@ type Model struct {
 	aiWarn string
 	repo   string
 
-	todoSel int
-	testSel int
+	todoSel        int
 	todoAnchorRepo string // 待办选中锚点（列表重排后仍指向同一 Issue）
 	todoAnchorNum  int
-	testAnchorRepo string // 验收选中锚点
-	testAnchorRef  string
-	leftFocus leftPanelFocus // 左栏焦点：待办 或 验收
-	spinnerFrame int
-	spinnerActive bool
-	ready   bool
-
-	modeMenuOpen bool
-	modeMenuSel  int
-
-	acceptMenuOpen bool
-	acceptMenuSel  int
-
-	webhookMenuOpen  bool
-	webhookMenuLevel int
-	webhookMenuSel   int
-	webhookEditField int
-
-	aiMenuOpen  bool
-	aiMenuLevel int
-	aiMenuSel   int
-	aiEditField int
-	aiInput     textinput.Model
-
-	proxyMenuOpen  bool
-	proxyMenuLevel int
-	proxyMenuSel   int
-	proxyEditField int
-	proxyInput     textinput.Model
-
-	menuNotice       string
-	connInput        textinput.Model
+	spinnerFrame   int
+	spinnerActive  bool
+	ready          bool
 
 	completions []Completion
 	completeIdx int
 
-	confirmOpen  bool
-	confirmRepo  string
-	confirmNum   int
-	confirmDraft string
-
-	fixConfirmOpen  bool
-	fixConfirmRepo  string
-	fixConfirmNum   int
-	fixConfirmTitle string
-
-	invLogSink *investigatorLogSink
-	invStatus  string
-
-	workerBusy   bool // 主线程设置，防止 Worker 重入
-	refactorBusy bool // Refactor Worker 重入保护
-	libTestBusy bool
+	workerBusy   bool // 主线程设置，防止任务重入
+	settingsOpen bool
+	pending      *ChatAction
 
 	runCtx context.Context // 退出时 cancel，终止后台 tea.Cmd
-
-	investigatorLogFn func(string)
 
 	viewCache viewCacheState // View 输出缓存，减轻 lipgloss 重绘
 }
 
 // NewModel 构造 TUI 初始状态（尺寸在 WindowSizeMsg 后 layout）。
-func NewModel(cfg *config.Config, store *todo.FileStore, libTestStore *libtest.FileStore, wh *WebhookRuntime) Model {
+func NewModel(cfg *config.Config, tasks *task.FileStore, wh *WebhookRuntime) Model {
 	ti := textinput.New()
 	ti.Placeholder = "ask a question, or describe a task  (/help)"
 	ti.Focus()
@@ -134,15 +87,13 @@ func NewModel(cfg *config.Config, store *todo.FileStore, libTestStore *libtest.F
 	m := Model{
 		cfg:            cfg,
 		gh:             github.NewClientWithProxy(cfg.Proxy),
-		store:          store,
-		libTestStore:   libTestStore,
+		tasks:          tasks,
 		whRuntime:      wh,
 		input:          ti,
 		outputViewport: viewport.New(60, 8),
 	}
 	m.syncOutputViewport(true)
 	m.ensureTodoSelection()
-	m.ensureTestSelection()
 	return m
 }
 
@@ -160,9 +111,6 @@ func (m *Model) Init() tea.Cmd {
 		m.startWebhookCmd(),
 		m.refreshTickCmd(),
 		m.workerTickCmd(),
-	}
-	if m.cfg != nil && m.cfg.LibTest.Enabled {
-		cmds = append(cmds, m.libTestTickCmd())
 	}
 	if diagEnabled() {
 		cmds = append(cmds, m.diagTickCmd())
@@ -222,58 +170,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.fixConfirmOpen {
-			handled, postCmd := m.handleFixConfirmKey(msg.String())
-			if handled {
-				return m, postCmd
-			}
-		}
-		if m.confirmOpen {
-			handled, postCmd := m.handleConfirmKey(msg.String())
-			if handled {
-				return m, postCmd
-			}
-		}
-		if m.aiMenuOpen && m.aiEditField >= 0 {
-			return m.handleAIConnEdit(msg)
-		}
-		if m.aiMenuOpen {
-			if m.handleAIMenuKey(msg.String()) {
-				return m, textinput.Blink
+		if m.settingsOpen {
+			if RouteSettingsKey(msg.String()) == KeyCloseSettings {
+				m.settingsOpen = false
+				m.markDirty()
 			}
 			return m, nil
 		}
-		if m.proxyMenuOpen && m.proxyEditField >= 0 {
-			return m.handleProxyConnEdit(msg)
-		}
-		if m.proxyMenuOpen {
-			if m.handleProxyMenuKey(msg.String()) {
-				return m, textinput.Blink
-			}
-			return m, nil
-		}
-		if m.webhookMenuOpen && m.webhookEditField >= 0 {
-			return m.handleWebhookConnEdit(msg)
-		}
-		if m.webhookMenuOpen {
-			if m.handleWebhookMenuKey(msg.String()) {
-				return m, textinput.Blink
-			}
-			return m, nil
-		}
-		if m.modeMenuOpen {
-			if handled, cmd := m.handleModeMenuKey(msg.String()); handled {
-				return m, cmd
-			}
-			return m, nil
-		}
-		if m.acceptMenuOpen {
-			if handled, cmd := m.handleAcceptMenuKey(msg.String()); handled {
-				return m, cmd
-			}
-			return m, nil
-		}
-
 		switch msg.String() {
 		case "ctrl+y":
 			if n, err := m.copyLogsToClipboard(); err != nil {
@@ -284,73 +187,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "ctrl+c":
 			return m, tea.Quit
-		case "esc":
-			if m.fixConfirmOpen {
-				m.closeFixConfirmMenu()
+		case "esc", "j", "down", "k", "up", "s":
+			switch RouteMainKey(m.input.Value() == "", msg.String()) {
+			case KeyQuit:
+				return m, tea.Quit
+			case KeyMoveDown:
+				m.todoDown()
 				return m, nil
-			}
-			if m.confirmOpen {
-				m.closeConfirmMenu()
+			case KeyMoveUp:
+				m.todoUp()
 				return m, nil
-			}
-			return m, tea.Quit
-		case "j", "down":
-			if m.input.Value() == "" {
-				if m.leftFocus == focusTest {
-					m.testDown()
-				} else {
-					m.todoDown()
-				}
-				return m, nil
-			}
-		case "k", "up":
-			if m.input.Value() == "" {
-				if m.leftFocus == focusTest {
-					m.testUp()
-				} else {
-					m.todoUp()
-				}
-				return m, nil
-			}
-		case "[":
-			if m.input.Value() == "" {
-				m.leftFocus = focusTodo
+			case KeyOpenSettings:
+				m.settingsOpen = true
 				m.markDirty()
 				return m, nil
-			}
-		case "]":
-			if m.input.Value() == "" {
-				m.leftFocus = focusTest
-				m.markDirty()
+			case KeyInsert:
+				// 继续交给输入框。
+			default:
 				return m, nil
 			}
 		case "d":
 			if m.input.Value() == "" {
-				if m.leftFocus == focusTest {
-					m.dismissSelectedTest()
-				} else {
-					m.dismissSelectedTodo()
-				}
+				m.dismissSelectedTodo()
 				return m, nil
 			}
 		case "i":
-			if m.input.Value() == "" && m.leftFocus == focusTodo {
+			if m.input.Value() == "" {
 				return m, m.focusSelectedTodo()
-			}
-		case "v":
-			if m.input.Value() == "" && m.leftFocus == focusTest {
-				m.showSelectedTestReport()
-				return m, nil
-			}
-		case "p":
-			if m.input.Value() == "" && m.leftFocus == focusTodo {
-				m.openConfirmMenu()
-				return m, nil
-			}
-		case "f":
-			if m.input.Value() == "" && m.leftFocus == focusTodo {
-				m.openFixConfirmMenu()
-				return m, nil
 			}
 		case "tab":
 			if m.applyCompletionTab() {
@@ -362,9 +225,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			if m.input.Value() == "" {
-				if m.leftFocus == focusTest {
-					return m, m.runSelectedLibTest()
-				}
 				return m, nil
 			}
 			line := strings.TrimSpace(m.input.Value())
@@ -386,28 +246,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.appendOutput("> " + line)
-			if isModeMenuCommand(line) {
-				m.openModeMenu()
-				return m, textinput.Blink
-			}
-			if isWebhookMenuCommand(line) {
-				m.openWebhookMenu()
-				return m, textinput.Blink
-			}
-			if isAIMenuCommand(line) {
-				m.openAIMenu()
-				return m, textinput.Blink
-			}
-			if isProxyMenuCommand(line) {
-				m.openProxyMenu()
-				return m, textinput.Blink
-			}
-			if isAcceptMenuCommand(line) {
-				m.openAcceptMenu()
-				return m, nil
-			}
 			if !strings.HasPrefix(line, "/") {
-				return m, m.runAgentChat(line)
+				next, reply := HandleChat(m.pending, line)
+				m.pending = next
+				if reply.Text != "" && !chatNeedsModel(reply) {
+					m.appendOutput(reply.Text)
+				}
+				if reply.Execute != nil {
+					m.appendOutput(m.applyChatAction(reply.Execute))
+				}
+				if chatNeedsModel(reply) {
+					return m, m.answerChat(line)
+				}
+				return m, nil
 			}
 			return m, m.runCommand(line)
 		}
@@ -444,7 +295,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.appendOutput(strings.Join(wh, " · "))
 		}
-		m.appendOutput("输入 /help 查看命令 · /webhook /accept /model /proxy 配置")
+		m.appendOutput("输入 /help 查看命令 · 空输入按 s 打开设置")
 		m.appendOutput("后台日志: " + config.LogFilePath() + "（Ctrl+Y 复制 · tail -f 查看）")
 		m.appendOutput("强制退出: 连按两次 Ctrl+C，或另开终端 make kill")
 		if diagEnabled() {
@@ -464,32 +315,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case workerTickMsg:
 		m.refreshAIHealth()
 		cmds := []tea.Cmd{m.workerTickCmd()}
-		if !m.workerBusy && m.cfg.IssueAutomation.Mode != config.ModeManual && m.aiOK && m.cfg.IssueAutomation.AutoAnalyze && m.hasWorkerWork() {
-			cmds = append(cmds, m.runWorkerCmd())
-		}
-		if !m.refactorBusy && m.aiOK && m.hasRefactorWork() {
-			cmds = append(cmds, m.runRefactorCmd("", 0))
+		if cmd := m.triggerWorkerIfNeeded(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
-
-	case refactorDoneMsg:
-		cmd := m.handleRefactorDoneMsg(msg)
-		m.clearInvStatus()
-		return m, cmd
-
-	case libTestTickMsg:
-		return m, m.handleLibTestTick()
 
 	case diagTickMsg:
 		return m, m.handleDiagTick()
 
-	case libTestDoneMsg:
-		return m, m.handleLibTestDone(msg)
-
-	case workerDoneMsg:
-		cmd := m.handleWorkerDone(msg)
-		m.clearInvStatus()
-		return m, cmd
+	case taskDoneMsg:
+		return m, m.handleTaskDone(msg)
 
 	case LogLineMsg:
 		if msg.Line != "" {
@@ -528,21 +363,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// 连接字段编辑时把 BlinkMsg 等交给 textinput；菜单未编辑时丢弃非 KeyMsg，避免事件洪峰。
-	if m.aiMenuOpen && m.aiEditField >= 0 {
-		return m.handleAIConnEdit(msg)
-	}
-	if m.proxyMenuOpen && m.proxyEditField >= 0 {
-		return m.handleProxyConnEdit(msg)
-	}
-	if m.webhookMenuOpen && m.webhookEditField >= 0 {
-		return m.handleWebhookConnEdit(msg)
-	}
-
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
-	if m.modeMenuOpen || m.webhookMenuOpen || m.aiMenuOpen || m.proxyMenuOpen || m.confirmOpen || m.fixConfirmOpen || m.acceptMenuOpen {
+	if m.settingsOpen {
 		return m, nil
 	}
 	prev := m.input.Value()
@@ -559,7 +384,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) runCommand(line string) tea.Cmd {
 	ctx := m.bgCtx()
 	return func() tea.Msg {
-		out := runCommand(ctx, m.cfg, m.gh, m.store, line)
+		out := runCommand(ctx, m.cfg, m.gh, m.tasks, line)
 		return commandDoneMsg{output: out}
 	}
 }
@@ -646,7 +471,7 @@ func (m *Model) todoPanelWidth() int {
 }
 
 func (m *Model) renderTodoPanel() string {
-	active := m.activeTodos()
+	active := SortTasksForView(m.activeTodos())
 	if len(active) == 0 {
 		return styleTodoItem.Render("  (无)")
 	}
@@ -675,7 +500,7 @@ func (m *Model) renderTodoPanel() string {
 			style := styleTodoItem
 			if i == m.todoSel && j == 0 {
 				style = styleTodoSelected
-			} else if j == 0 && it.Status == todo.StatusAnalyzing {
+			} else if j == 0 && taskBusy(it.Status) {
 				style = styleTodoAnalyzing
 			}
 			lines = append(lines, style.Render(line))
@@ -703,51 +528,6 @@ func (m *Model) renderFooter() string {
 	var b strings.Builder
 	b.WriteString("\n")
 
-	if m.webhookMenuOpen {
-		b.WriteString(m.renderWebhookMenu())
-		b.WriteString(m.renderWebhookConnEditBar())
-		b.WriteString("\n")
-		return b.String()
-	}
-
-	if m.aiMenuOpen {
-		b.WriteString(m.renderAIMenu())
-		b.WriteString(m.renderAIConnEditBar())
-		b.WriteString("\n")
-		return b.String()
-	}
-
-	if m.proxyMenuOpen {
-		b.WriteString(m.renderProxyMenu())
-		b.WriteString(m.renderProxyConnEditBar())
-		b.WriteString("\n")
-		return b.String()
-	}
-
-	if m.modeMenuOpen {
-		b.WriteString(m.renderModeMenu())
-		b.WriteString("\n")
-		return b.String()
-	}
-
-	if m.acceptMenuOpen {
-		b.WriteString(m.renderAcceptMenu())
-		b.WriteString("\n")
-		return b.String()
-	}
-
-	if m.confirmOpen {
-		b.WriteString(m.renderConfirmMenu())
-		b.WriteString("\n")
-		return b.String()
-	}
-
-	if m.fixConfirmOpen {
-		b.WriteString(m.renderFixConfirmMenu())
-		b.WriteString("\n")
-		return b.String()
-	}
-
 	line := m.input.View()
 	if ghost := ghostSuffix(m.input.Value(), m.completions); ghost != "" {
 		line += styleCompleteGhost.Render(ghost)
@@ -760,7 +540,7 @@ func (m *Model) renderFooter() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(styleHelp.Render("[/] 待办/验收 · j/k/↑↓ 移动（首尾循环） · Ctrl+Y 复制日志"))
+	b.WriteString(styleHelp.Render("s 设置 · j/k 选任务 · Esc 退出"))
 	return b.String()
 }
 
@@ -802,37 +582,25 @@ func (m *Model) View() string {
 		}
 	}()
 	view := m.renderHeaderCached() + m.renderBody() + m.renderFooter()
+	if m.settingsOpen {
+		view = m.renderSettingsPage()
+	}
 	out := lipgloss.NewStyle().Width(m.width).Render(view)
 	m.storeCachedView(out)
 	return out
 }
 
 func (m *Model) renderStatusBar() string {
-	mode := m.cfg.IssueAutomation.ModeLabel()
 	model := m.cfg.AI.Model
-	watch := m.todoWatchSummary()
-
-	wh := "wh:off"
+	wh := "关"
 	if m.cfg.Webhook.Enabled {
-		wh = "wh:on"
+		wh = "开"
 	}
-
-	cwd := m.cachedCWD()
-
-	line := fmt.Sprintf("%s · %s · %s · %s · 待办 %d", model, mode, wh, watch, m.store.ActiveCount())
-	if s := strings.TrimSpace(m.invStatus); s != "" {
-		if len(s) > 48 {
-			s = s[:48] + "…"
-		}
-		line += " · " + s
+	repo := m.repo
+	if repo == "" {
+		repo = "—"
 	}
-	if m.width > 0 {
-		pad := m.width - lipgloss.Width(line) - lipgloss.Width(cwd) - 2
-		if pad > 0 {
-			line += strings.Repeat(" ", pad)
-		}
-	}
-	line += cwd
+	line := fmt.Sprintf("%s · webhook %s · %s · 任务 %d", model, wh, repo, m.tasks.ActiveCount())
 	return styleStatusBar.Width(m.width).Render(line)
 }
 
