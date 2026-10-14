@@ -1,44 +1,64 @@
 package safety
 
+import "strings"
+
 // Verdict 是安全评估结论。
 type Verdict string
 
 const (
-	VerdictSafeToPublish     Verdict = "safe_to_publish"
-	VerdictPublishAsDraft    Verdict = "publish_as_draft"
-	VerdictNeedsMoreFix      Verdict = "needs_more_fix"
-	VerdictNeedsManualReview Verdict = "needs_manual_review"
-	VerdictRecommendRollback Verdict = "recommend_rollback"
-	VerdictBlock             Verdict = "block"
+	VerdictNeedsMoreFix   Verdict = "needs_more_fix"
+	VerdictPublishAsDraft Verdict = "publish_as_draft"
+	VerdictBlock          Verdict = "block"
 )
 
-// Input 是一次风险评估所需的事实。
+// Input 是 v1 风险评估所需的事实。
 type Input struct {
-	DiffFiles  int
-	Deleted    int
-	VerifyOK   bool
-	Retries    int
-	MaxRetries int
+	Deleted  int
+	Paths    []string
+	VerifyOK bool
+	Retries  int
 }
 
 // Report 是风险评估输出。
 type Report struct {
 	Verdict Verdict
+	Reason  string
 }
 
-// Evaluate 按固定优先级给出结论。第一轮通过的修改也只建议 draft PR。
+// Evaluate 按路线图第 3 节判断能否开 draft PR。
 func Evaluate(in Input) Report {
-	if in.Deleted >= 10 {
-		return Report{Verdict: VerdictBlock}
+	if in.Deleted > 0 {
+		return Report{Verdict: VerdictBlock, Reason: "diff 删除了文件"}
 	}
-	if !in.VerifyOK && in.Retries >= in.MaxRetries && in.DiffFiles >= 15 {
-		return Report{Verdict: VerdictRecommendRollback}
-	}
-	if !in.VerifyOK && in.Retries < in.MaxRetries {
-		return Report{Verdict: VerdictNeedsMoreFix}
+	for _, path := range in.Paths {
+		if highRiskPath(path) {
+			return Report{Verdict: VerdictBlock, Reason: "改动了高风险路径 " + path}
+		}
 	}
 	if !in.VerifyOK {
-		return Report{Verdict: VerdictNeedsManualReview}
+		if in.Retries >= 3 {
+			return Report{Verdict: VerdictBlock, Reason: "连续 3 次测试失败"}
+		}
+		return Report{Verdict: VerdictNeedsMoreFix, Reason: "测试失败"}
 	}
-	return Report{Verdict: VerdictPublishAsDraft}
+	return Report{Verdict: VerdictPublishAsDraft, Reason: "测试通过"}
+}
+
+func highRiskPath(path string) bool {
+	p := strings.ToLower(strings.TrimSpace(path))
+	needles := []string{
+		".github/workflows/",
+		".goreleaser",
+		"codeowners",
+		"secret",
+		".env",
+		"credential",
+		"/release",
+	}
+	for _, n := range needles {
+		if strings.Contains(p, n) {
+			return true
+		}
+	}
+	return false
 }

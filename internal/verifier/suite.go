@@ -5,17 +5,13 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-
-	"github.com/ZzedJay/Ops-Agent/internal/repovalidate"
 )
 
 // Opts 是一次验证的输入。
 type Opts struct {
-	RepoPath     string
-	StandardsDir string
-	Standard     string
-	Commands     []string
-	Runner       func(ctx context.Context, dir, command string) (string, error)
+	RepoPath string
+	Commands []string
+	Runner   func(ctx context.Context, dir, command string) (string, error)
 }
 
 // Result 是验证报告。
@@ -25,23 +21,13 @@ type Result struct {
 	Command string
 }
 
-// Run 执行仓库规范检查和命令列表。
+// Run 执行命令列表。没有命令时视为缺少验证。
 func Run(ctx context.Context, opts Opts) Result {
+	if len(opts.Commands) == 0 {
+		return Result{OK: false, Report: "缺少验证"}
+	}
 	res := Result{OK: true}
 	var parts []string
-	if opts.Standard != "" {
-		std, err := repovalidate.LoadStandard(opts.StandardsDir, opts.Standard)
-		if err != nil {
-			res.OK = false
-			res.Report = err.Error()
-			return res
-		}
-		report := repovalidate.Validate(opts.RepoPath, std)
-		parts = append(parts, report.Format())
-		if !report.OK {
-			res.OK = false
-		}
-	}
 	run := opts.Runner
 	if run == nil {
 		run = defaultRunner

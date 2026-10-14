@@ -26,3 +26,17 @@ func EnqueueIssue(cfg *config.Config, store *task.FileStore, repo string, iss gi
 		URL:          iss.URL,
 	})
 }
+
+// EnqueuePR 创建或复用一条 PR 到 draft PR 的任务，不立即执行。
+func EnqueuePR(cfg *config.Config, store *task.FileStore, repo string, number int, title, url string) (bool, task.Task, error) {
+	if cfg == nil || !cfg.Task.IssueToPR.Enabled {
+		return false, task.Task{}, nil
+	}
+	if store == nil {
+		return false, task.Task{}, fmt.Errorf("task store required")
+	}
+	return store.Ensure(task.Task{
+		Repo: repo, Type: task.TypeIssueToPR, SourceKind: task.SourceKindPR,
+		SourceNumber: number, Title: title, URL: url,
+	})
+}

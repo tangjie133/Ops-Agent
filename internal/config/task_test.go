@@ -8,8 +8,8 @@ func TestTaskConfigDefaults(t *testing.T) {
 	if !cfg.Task.Idempotency {
 		t.Fatal("idempotency default true")
 	}
-	if cfg.Task.IssueToPR.Enabled {
-		t.Fatal("issue_to_pr must default off")
+	if !cfg.Task.IssueToPR.Enabled {
+		t.Fatal("issue_to_pr is the main path")
 	}
 	if cfg.Task.Workspace.Mode != "worktree" {
 		t.Fatalf("mode=%s", cfg.Task.Workspace.Mode)

@@ -94,7 +94,7 @@ func (m *Model) renderHeaderCached() string {
 	var b strings.Builder
 	b.WriteString(styleBanner.Render(bannerASCII))
 	b.WriteString("\n")
-	b.WriteString(styleWelcome.Render("Welcome to Ops-Agent!  /help  ·  /mode  ·  Ctrl+C: quit"))
+	b.WriteString(styleWelcome.Render("Welcome to Ops-Agent!  /help  ·  s 设置  ·  Esc 退出"))
 	b.WriteString("\n\n")
 	static := b.String()
 

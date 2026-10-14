@@ -17,13 +17,13 @@ import (
 )
 
 const (
-	diagInterval       = 30 * time.Second
-	diagSlowUpdate     = 50 * time.Millisecond
-	diagSlowView       = 50 * time.Millisecond
-	diagSlowViewLog    = 200 * time.Millisecond
-	diagSlowBridgeFwd  = 100 * time.Millisecond
-	diagQueueWarn      = 128
-	diagBufSize        = 512
+	diagInterval      = 30 * time.Second
+	diagSlowUpdate    = 50 * time.Millisecond
+	diagSlowView      = 50 * time.Millisecond
+	diagSlowViewLog   = 200 * time.Millisecond
+	diagSlowBridgeFwd = 100 * time.Millisecond
+	diagQueueWarn     = 128
+	diagBufSize       = 512
 )
 
 type diagTickMsg struct{}
@@ -95,14 +95,10 @@ func diagMsgType(msg tea.Msg) string {
 		return "invStatus"
 	case workerTickMsg:
 		return "workerTick"
-	case libTestTickMsg:
-		return "libTestTick"
 	case spinnerTickMsg:
 		return "spinnerTick"
-	case workerDoneMsg:
-		return "workerDone"
-	case libTestDoneMsg:
-		return "libTestDone"
+	case taskDoneMsg:
+		return "taskDone"
 	case commandDoneMsg:
 		return "commandDone"
 	case tea.KeyMsg:
@@ -246,8 +242,8 @@ func emitDiagSnapshot(m *Model) {
 	b.WriteString(fmt.Sprintf(" updates=%d update_slow=%d view_slow=%d persist_drop=%d",
 		diagUpdateTotal.Load(), diagUpdateSlow.Load(), diagViewSlow.Load(), diagPersistDrop.Load()))
 	b.WriteString(formatMsgHistTop(6))
-	b.WriteString(fmt.Sprintf(" log_file=%s output_bytes=%d spinner=%v todos=%d libtests=%d",
-		config.LogFilePath(), len(m.outputContent), m.spinnerActive, m.store.ActiveCount(), len(m.activeLibTests())))
+	b.WriteString(fmt.Sprintf(" log_file=%s output_bytes=%d spinner=%v todos=%d",
+		config.LogFilePath(), len(m.outputContent), m.spinnerActive, m.tasks.ActiveCount()))
 	queueDiag(b.String())
 }
 

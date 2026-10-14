@@ -6,8 +6,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 const invStatusMinInterval = 1 * time.Second
@@ -63,23 +61,4 @@ func pollInvStatus() string {
 	invStatusState.mu.Lock()
 	defer invStatusState.mu.Unlock()
 	return invStatusState.line
-}
-
-func (m *Model) bindInvestigatorLog() {
-	sink := newInvestigatorLogSink()
-	m.invLogSink = sink
-	m.investigatorLogFn = sink.log
-}
-
-// maintainSpinner 已合并到 refresh tick（500ms 更新 spinner 帧，避免 250ms 独立 tick 洪峰）。
-func (m *Model) maintainSpinner() tea.Cmd {
-	return nil
-}
-
-func (m *Model) clearInvStatus() {
-	m.invStatus = ""
-	if m.invLogSink != nil {
-		m.invLogSink.reset()
-	}
-	m.markDirty()
 }

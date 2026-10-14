@@ -23,9 +23,9 @@ var (
 			Background(lipgloss.Color("#1F2937")).
 			Padding(0, 1)
 
-	styleStatusOK = lipgloss.NewStyle().Foreground(colorOK)
+	styleStatusOK   = lipgloss.NewStyle().Foreground(colorOK)
 	styleStatusWarn = lipgloss.NewStyle().Foreground(colorWarn)
-	styleStatusErr = lipgloss.NewStyle().Foreground(colorError)
+	styleStatusErr  = lipgloss.NewStyle().Foreground(colorError)
 
 	styleOutput = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#D1D5DB"))
@@ -38,38 +38,38 @@ var (
 			Foreground(lipgloss.Color("#9CA3AF"))
 
 	styleTodoSelected = lipgloss.NewStyle().
-			Foreground(colorPrimary).
-			Bold(true)
+				Foreground(colorPrimary).
+				Bold(true)
 
 	styleTodoAnalyzing = lipgloss.NewStyle().
-			Foreground(colorWarn).
-			Bold(true)
+				Foreground(colorWarn).
+				Bold(true)
 
 	styleLogHeader = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#6B7280")).
 			Bold(true)
 
 	styleCompleteBar = lipgloss.NewStyle().
-			Foreground(colorMuted)
+				Foreground(colorMuted)
 
 	styleCompleteActive = lipgloss.NewStyle().
-			Foreground(colorPrimary).
-			Bold(true)
+				Foreground(colorPrimary).
+				Bold(true)
 
 	styleCompleteGhost = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#4B5563"))
+				Foreground(lipgloss.Color("#4B5563"))
 
 	styleCompleteHint = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#6B7280"))
+				Foreground(lipgloss.Color("#6B7280"))
 
 	styleWebhookLog = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#9CA3AF"))
 
 	styleWebhookEvent = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#A5B4FC"))
+				Foreground(lipgloss.Color("#A5B4FC"))
 
 	styleWorkerEvent = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#34D399"))
+				Foreground(lipgloss.Color("#34D399"))
 
 	styleInvestigatorLog = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FBBF24"))
@@ -79,8 +79,8 @@ var (
 			Bold(true)
 
 	styleTestSelected = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#34D399")).
-			Bold(true)
+				Foreground(lipgloss.Color("#34D399")).
+				Bold(true)
 
 	styleTestPass = lipgloss.NewStyle().
 			Foreground(colorOK)
@@ -123,58 +123,13 @@ const outputPlaceholder = "对话 — 命令与 Agent 回复将显示在这里"
 
 // headerLineCount is the fixed header height (banner + welcome + status + spacing).
 const headerLineCount = 12
+
 // footerLineCount is the default footer height (spacing + input + help).
 const footerLineCount = 3
 
-// menuFooterLines is the reserved footer height when a config menu is open.
-const menuFooterLines = 15
-
 func (m *Model) activeFooterLines() int {
-	if m.confirmOpen || m.fixConfirmOpen {
-		return 18
-	}
-	if m.aiMenuOpen {
-		lines := 20
-		if m.aiMenuLevel == aiMenuLevelConnection {
-			lines = 22
-		}
-		if m.aiEditField >= 0 {
-			lines += 4
-		}
-		return lines
-	}
-	if m.proxyMenuOpen {
-		lines := 20
-		if m.proxyMenuLevel == proxyMenuLevelConnection {
-			lines = 22
-		}
-		if m.proxyEditField >= 0 {
-			lines += 4
-		}
-		return lines
-	}
-	if m.webhookMenuOpen || m.modeMenuOpen || m.acceptMenuOpen {
-		lines := menuFooterLines
-		if m.webhookMenuOpen {
-			switch m.webhookMenuLevel {
-			case webhookMenuLevelConnection:
-				lines = 24
-			case webhookMenuLevelRoot:
-				lines = 20
-			case webhookMenuLevelIssue:
-				lines = 16
-			}
-		}
-		if m.acceptMenuOpen {
-			lines = 16
-		}
-		if m.modeMenuOpen {
-			lines = 22
-		}
-		if m.webhookMenuOpen && m.webhookEditField >= 0 {
-			lines += 4
-		}
-		return lines
+	if m.settingsOpen {
+		return 12
 	}
 	return footerLineCount
 }

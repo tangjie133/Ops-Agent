@@ -7,11 +7,10 @@ import (
 	"testing"
 )
 
-func TestRunFailsOnMissingStandardFile(t *testing.T) {
-	dir := t.TempDir()
-	res := Run(context.Background(), Opts{RepoPath: dir, StandardsDir: t.TempDir(), Standard: "missing"})
-	if res.OK {
-		t.Fatal("expected fail")
+func TestRunStopsWhenNoTestCommand(t *testing.T) {
+	res := Run(context.Background(), Opts{RepoPath: t.TempDir()})
+	if res.OK || res.Report != "缺少验证" {
+		t.Fatalf("ok=%v report=%q", res.OK, res.Report)
 	}
 }
 

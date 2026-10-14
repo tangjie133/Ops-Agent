@@ -59,14 +59,14 @@ type StatusCheckRollup struct {
 
 // PullRequest 对应 gh pr view --json 的结构。
 type PullRequest struct {
-	Number             int               `json:"number"`
-	Title              string            `json:"title"`
-	URL                string            `json:"url"`
-	State              string            `json:"state"`
-	Body               string            `json:"body"`
-	Mergeable          string            `json:"mergeable"`
-	MergeStateStatus   string            `json:"mergeStateStatus"`
-	StatusCheckRollup  StatusCheckRollup `json:"statusCheckRollup"`
+	Number            int               `json:"number"`
+	Title             string            `json:"title"`
+	URL               string            `json:"url"`
+	State             string            `json:"state"`
+	Body              string            `json:"body"`
+	Mergeable         string            `json:"mergeable"`
+	MergeStateStatus  string            `json:"mergeStateStatus"`
+	StatusCheckRollup StatusCheckRollup `json:"statusCheckRollup"`
 }
 
 const prViewJSON = "number,title,url,state,body,mergeable,mergeStateStatus,statusCheckRollup"
@@ -406,6 +406,29 @@ func (c *Client) GitCheckout(ctx context.Context, dir, ref string, proxy config.
 	netproxy.ConfigureCmd(cmd, proxy)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git checkout: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// PRMerge 合并指定 PR。只由已确认的对话动作调用。
+func (c *Client) PRMerge(ctx context.Context, repo string, number int) error {
+	_, err := c.run(ctx, "pr", "merge", fmt.Sprintf("%d", number), "--repo", repo, "--merge")
+	return err
+}
+
+// IssueClose 关闭指定 Issue。只由已确认的对话动作调用。
+func (c *Client) IssueClose(ctx context.Context, repo string, number int) error {
+	_, err := c.run(ctx, "issue", "close", fmt.Sprintf("%d", number), "--repo", repo)
+	return err
+}
+
+// ForcePush 把 ref 强制推到 origin。只由已确认的对话动作调用。
+func (c *Client) ForcePush(ctx context.Context, ref string) error {
+	cmd := exec.CommandContext(ctx, "git", "push", "--force", "origin", ref)
+	netproxy.ConfigureCmd(cmd, c.proxy)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git push --force %s: %w\n%s", ref, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

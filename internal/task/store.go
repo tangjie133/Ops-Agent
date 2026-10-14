@@ -1,10 +1,12 @@
 package task
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +20,7 @@ type FileStore struct {
 	byID  map[string]string
 	runs  map[string]Run
 	clock func() time.Time
+	seen  time.Time
 }
 
 type fileDoc struct {
@@ -43,6 +46,9 @@ func Load(path string) (*FileStore, error) {
 		}
 		return nil, fmt.Errorf("read task store: %w", err)
 	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return s, nil
+	}
 	var doc fileDoc
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("parse task store: %w", err)
@@ -53,6 +59,9 @@ func Load(path string) (*FileStore, error) {
 	}
 	for _, r := range doc.Runs {
 		s.runs[r.Key] = r
+	}
+	if info, err := os.Stat(path); err == nil {
+		s.seen = info.ModTime()
 	}
 	return s, nil
 }
@@ -91,7 +100,9 @@ func (s *FileStore) BeginRun(taskKey, triggerHash string) (Run, bool, error) {
 	}
 	runKey := MakeRunKey(taskKey, triggerHash)
 	if existing, ok := s.runs[runKey]; ok {
-		return existing, true, nil
+		if cur.Status != StatusCreated || cur.ActiveRunID != "" {
+			return existing, true, nil
+		}
 	}
 	if cur.ActiveRunID != "" {
 		return Run{}, false, fmt.Errorf("并行 Run 未结束")
@@ -151,6 +162,12 @@ func (s *FileStore) List() []Task {
 	for _, tk := range s.tasks {
 		out = append(out, tk)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].Key < out[j].Key
+		}
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
 	return out
 }
 
@@ -160,6 +177,105 @@ func (s *FileStore) GetByKey(key string) (Task, bool) {
 	defer s.mu.RUnlock()
 	tk, ok := s.tasks[key]
 	return tk, ok
+}
+
+// ReloadIfChanged 在文件被其他进程写过时重新载入。
+func (s *FileStore) ReloadIfChanged() (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	info, err := os.Stat(s.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !s.seen.IsZero() && !info.ModTime().After(s.seen) {
+		return false, nil
+	}
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return false, err
+	}
+	var doc fileDoc
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return false, err
+	}
+	s.tasks = map[string]Task{}
+	s.byID = map[string]string{}
+	s.runs = map[string]Run{}
+	for _, tk := range doc.Tasks {
+		s.tasks[tk.Key] = tk
+		s.byID[tk.ID] = tk.Key
+	}
+	for _, r := range doc.Runs {
+		s.runs[r.Key] = r
+	}
+	s.seen = info.ModTime()
+	return true, nil
+}
+
+// ActiveCount 返回尚未结束的任务数。
+func (s *FileStore) ActiveCount() int {
+	if s == nil {
+		return 0
+	}
+	n := 0
+	for _, tk := range s.List() {
+		if !terminalStatus(tk.Status) {
+			n++
+		}
+	}
+	return n
+}
+
+// FindIssue 按仓库和 Issue 编号查找任务。
+func (s *FileStore) FindIssue(repo string, number int) (Task, bool) {
+	if s == nil {
+		return Task{}, false
+	}
+	return s.GetByKey(MakeTaskKey(repo, TypeIssueToPR, SourceKindIssue, number))
+}
+
+// CancelIssue 把未结束的 Issue 任务标为取消。
+func (s *FileStore) CancelIssue(repo string, number int) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tk, ok := s.tasks[MakeTaskKey(repo, TypeIssueToPR, SourceKindIssue, number)]
+	if !ok || terminalStatus(tk.Status) {
+		return false, nil
+	}
+	tk.Status = StatusCancelled
+	tk.ActiveRunID = ""
+	tk.UpdatedAt = s.now()
+	s.tasks[tk.Key] = tk
+	return true, s.saveLocked()
+}
+
+// RequeueIssue 让已结束或等待人工的任务回到 created，以便再跑一次。
+func (s *FileStore) RequeueIssue(repo string, number int) (bool, Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tk, ok := s.tasks[MakeTaskKey(repo, TypeIssueToPR, SourceKindIssue, number)]
+	if !ok || tk.ActiveRunID != "" || tk.Status == StatusCreated {
+		return false, tk, nil
+	}
+	tk.Status = StatusCreated
+	tk.UpdatedAt = s.now()
+	s.tasks[tk.Key] = tk
+	if err := s.saveLocked(); err != nil {
+		return false, Task{}, err
+	}
+	return true, tk, nil
+}
+
+func terminalStatus(st Status) bool {
+	switch st {
+	case StatusDone, StatusCancelled, StatusRolledBack:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *FileStore) now() time.Time {
@@ -188,5 +304,16 @@ func (s *FileStore) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil && filepath.Dir(s.path) != "." {
 		return err
 	}
-	return os.WriteFile(s.path, data, 0o644)
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if info, err := os.Stat(s.path); err == nil {
+		s.seen = info.ModTime()
+	}
+	return nil
 }

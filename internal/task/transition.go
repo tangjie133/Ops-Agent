@@ -53,11 +53,11 @@ var forward = map[Status][]Status{
 	StatusCollectingContext:   {StatusPlanning},
 	StatusPlanning:            {StatusAwaitingApproval, StatusExecuting},
 	StatusAwaitingApproval:    {StatusExecuting},
-	StatusExecuting:           {StatusVerifying},
+	StatusExecuting:           {StatusVerifying, StatusPublishing},
 	StatusVerifying:           {StatusEvaluatingSafety},
-	StatusEvaluatingSafety:    {StatusAwaitingHumanReview, StatusPublishing},
+	StatusEvaluatingSafety:    {StatusExecuting, StatusAwaitingHumanReview, StatusPublishing},
 	StatusAwaitingHumanReview: {StatusPublishing},
-	StatusPublishing:          {StatusLearning},
+	StatusPublishing:          {StatusDone},
 	StatusLearning:            {StatusDone},
 }
 

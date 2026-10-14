@@ -122,7 +122,7 @@ ci:
 task:
   idempotency: true
   issue_to_pr:
-    enabled: false
+    enabled: true
   workspace:
     mode: worktree
     keep_failed: true

@@ -2,24 +2,24 @@ package safety
 
 import "testing"
 
-func TestEvaluateRules(t *testing.T) {
+func TestEvaluateV1(t *testing.T) {
 	cases := []struct {
 		name string
 		in   Input
 		want Verdict
 	}{
-		{"delete block", Input{Deleted: 10, VerifyOK: true}, VerdictBlock},
-		{"rollback after retries", Input{VerifyOK: false, Retries: 3, MaxRetries: 3, DiffFiles: 15}, VerdictRecommendRollback},
-		{"retry while budget remains", Input{VerifyOK: false, Retries: 1, MaxRetries: 3, DiffFiles: 2}, VerdictNeedsMoreFix},
-		{"manual when retries exhausted but diff small", Input{VerifyOK: false, Retries: 3, MaxRetries: 3, DiffFiles: 2}, VerdictNeedsManualReview},
-		{"large passing diff is draft", Input{VerifyOK: true, DiffFiles: 20}, VerdictPublishAsDraft},
-		{"small passing diff is still draft", Input{VerifyOK: true, DiffFiles: 1}, VerdictPublishAsDraft},
+		{"any delete blocks", Input{Deleted: 1, VerifyOK: true}, VerdictBlock},
+		{"workflow path blocks", Input{VerifyOK: true, Paths: []string{".github/workflows/ci.yml"}}, VerdictBlock},
+		{"release path blocks", Input{VerifyOK: true, Paths: []string{".goreleaser.yaml"}}, VerdictBlock},
+		{"secret path blocks", Input{VerifyOK: true, Paths: []string{"config/secrets.env"}}, VerdictBlock},
+		{"third failure stops", Input{VerifyOK: false, Retries: 3}, VerdictBlock},
+		{"earlier failure retries", Input{VerifyOK: false, Retries: 2}, VerdictNeedsMoreFix},
+		{"clean pass publishes draft", Input{VerifyOK: true, Paths: []string{"internal/foo.go"}}, VerdictPublishAsDraft},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := Evaluate(tc.in)
-			if got.Verdict != tc.want {
-				t.Fatalf("got %s want %s", got.Verdict, tc.want)
+			if got := Evaluate(tc.in).Verdict; got != tc.want {
+				t.Fatalf("got %s want %s", got, tc.want)
 			}
 		})
 	}

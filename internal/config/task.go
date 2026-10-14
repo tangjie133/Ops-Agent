@@ -1,5 +1,11 @@
 package config
 
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+)
+
 // TaskConfig 是统一任务编排相关配置。
 type TaskConfig struct {
 	StorePath   string          `yaml:"store_path"`
@@ -10,7 +16,7 @@ type TaskConfig struct {
 	Feedback    FeedbackConfig  `yaml:"feedback"`
 }
 
-// IssueToPRConfig 控制第一轮 Issue 到 draft PR 闭环是否启用。
+// IssueToPRConfig 控制 Issue 到 draft PR 是否作为主流程。
 type IssueToPRConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
@@ -61,4 +67,23 @@ func (c *TaskConfig) Normalize() {
 	if c.Budget.MaxLLMCalls <= 0 {
 		c.Budget.MaxLLMCalls = 12
 	}
+}
+
+// TaskStorePath 返回任务队列文件。配置里的 store_path 优先。
+func TaskStorePath(cfg *Config) string {
+	if cfg != nil && cfg.Task.StorePath != "" {
+		return cfg.Task.StorePath
+	}
+	if p := os.Getenv("OPS_AGENT_DATA"); p != "" {
+		return filepath.Join(p, "tasks.json")
+	}
+	if runtime.GOOS == "windows" {
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			return filepath.Join(appData, "ops-agent", "tasks.json")
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".local", "share", "ops-agent", "tasks.json")
+	}
+	return "tasks.json"
 }

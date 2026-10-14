@@ -6,16 +6,13 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
-	"github.com/ZzedJay/Ops-Agent/internal/libtest"
 	"github.com/ZzedJay/Ops-Agent/internal/task"
-	"github.com/ZzedJay/Ops-Agent/internal/todo"
 )
 
 func signBody(secret string, body []byte) string {
@@ -24,15 +21,21 @@ func signBody(secret string, body []byte) string {
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
+func loadTasks(t *testing.T) *task.FileStore {
+	t.Helper()
+	s, err := task.Load(t.TempDir() + "/tasks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 func TestIssueOpenedEnqueue(t *testing.T) {
 	cfg := config.Default()
 	cfg.Webhook.Secret = "test-secret"
-	cfg.IssueWatch.Labels = nil
-	cfg.IssueWatch.RequireUnassigned = true
-
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
+	tasks := loadTasks(t)
 	var got Event
-	h := NewHandler(cfg, store, nil, func(evt Event) { got = evt }, nil)
+	h := NewHandler(cfg, tasks, func(evt Event) { got = evt }, nil)
 
 	body := []byte(`{
 		"action":"opened",
@@ -43,7 +46,6 @@ func TestIssueOpenedEnqueue(t *testing.T) {
 	req.Header.Set("X-GitHub-Event", "issues")
 	req.Header.Set("X-Hub-Signature-256", signBody("test-secret", body))
 	rec := httptest.NewRecorder()
-
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
@@ -51,227 +53,135 @@ func TestIssueOpenedEnqueue(t *testing.T) {
 	if got.Kind != EventAdded || got.Number != 42 {
 		t.Fatalf("event: %+v", got)
 	}
-	item, ok := store.Get("o/r", 42)
-	if !ok || item.Status != todo.StatusInTodo {
-		t.Fatalf("store item: %+v ok=%v", item, ok)
+	item, ok := tasks.FindIssue("o/r", 42)
+	if !ok || item.Status != task.StatusCreated {
+		t.Fatalf("task: %+v ok=%v", item, ok)
 	}
 }
 
-func TestIssueOpenedAlsoCreatesTask(t *testing.T) {
+func TestIssueOpenedDedupes(t *testing.T) {
 	cfg := config.Default()
 	cfg.Webhook.Secret = "test-secret"
-	cfg.IssueWatch.Labels = nil
-	cfg.Task.IssueToPR.Enabled = true
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-	tasks, err := task.Load(t.TempDir() + "/tasks.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := NewHandler(cfg, store, nil, func(evt Event) {}, nil)
-	h.SetTasks(tasks)
+	tasks := loadTasks(t)
+	h := NewHandler(cfg, tasks, func(evt Event) {}, nil)
 	body := []byte(`{
 		"action":"opened",
 		"issue":{"number":7,"title":"bug","state":"open","html_url":"https://github.com/o/r/issues/7","labels":[],"assignees":[]},
 		"repository":{"full_name":"o/r"}
 	}`)
-	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(body))
-	req.Header.Set("X-GitHub-Event", "issues")
-	req.Header.Set("X-Hub-Signature-256", signBody("test-secret", body))
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(body))
+		req.Header.Set("X-GitHub-Event", "issues")
+		req.Header.Set("X-Hub-Signature-256", signBody("test-secret", body))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+	if n := len(tasks.List()); n != 1 {
+		t.Fatalf("tasks=%d", n)
+	}
+}
+
+func TestIssueCommentRequeues(t *testing.T) {
+	cfg := config.Default()
+	cfg.Webhook.Secret = "s"
+	tasks := loadTasks(t)
+	_, tk, err := tasks.Ensure(task.Task{Repo: "o/r", Type: task.TypeIssueToPR, SourceKind: task.SourceKindIssue, SourceNumber: 55, Title: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk.Status = task.StatusDone
+	if err := tasks.Update(tk); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(cfg, tasks, func(evt Event) {}, nil)
+	body := []byte(`{
+		"action":"created",
+		"issue":{"number":55,"title":"old","state":"open","labels":[],"assignees":[]},
+		"comment":{"body":"please retry","user":{"login":"alice"}},
+		"repository":{"full_name":"o/r"}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "issue_comment")
+	req.Header.Set("X-Hub-Signature-256", signBody("s", body))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if _, ok := tasks.GetByKey(task.MakeTaskKey("o/r", task.TypeIssueToPR, task.SourceKindIssue, 7)); !ok {
-		t.Fatal("expected task")
+	if rec.Body.String() == "" {
+		t.Fatal("empty body")
+	}
+	item, ok := tasks.FindIssue("o/r", 55)
+	if !ok || item.Status != task.StatusDone {
+		t.Fatalf("done task must not requeue on comment: %+v ok=%v", item, ok)
 	}
 }
 
-func TestIssueOpenedSkippedWhenAssigned(t *testing.T) {
+func TestOwnAgentCommentDoesNotRequeue(t *testing.T) {
 	cfg := config.Default()
 	cfg.Webhook.Secret = "s"
-	cfg.IssueWatch.RequireUnassigned = true
-
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-	var got Event
-	h := NewHandler(cfg, store, nil, func(evt Event) { got = evt }, nil)
-
+	tasks := loadTasks(t)
+	_, tk, err := tasks.Ensure(task.Task{Repo: "o/r", Type: task.TypeIssueToPR, SourceKind: task.SourceKindIssue, SourceNumber: 56, Title: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk.Status = task.StatusDone
+	if err := tasks.Update(tk); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(cfg, tasks, func(evt Event) {}, nil)
 	body := []byte(`{
-		"action":"opened",
-		"issue":{"number":1,"title":"x","state":"open","assignees":[{"login":"alice"}],"labels":[]},
+		"action":"created",
+		"issue":{"number":56,"title":"old","state":"open","labels":[],"assignees":[]},
+		"comment":{"body":"介绍库\n\n---\nHandled by Ops-Agent\nTask: t\nRun: r\nMode: auto","user":{"login":"tangjie133"}},
 		"repository":{"full_name":"o/r"}
 	}`)
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "issue_comment")
+	req.Header.Set("X-Hub-Signature-256", signBody("s", body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	item, ok := tasks.FindIssue("o/r", 56)
+	if !ok || item.Status != task.StatusDone {
+		t.Fatalf("task=%+v ok=%v", item, ok)
+	}
+}
+
+func TestIssueClosedCancelsTask(t *testing.T) {
+	cfg := config.Default()
+	cfg.Webhook.Secret = "s"
+	tasks := loadTasks(t)
+	if _, _, err := tasks.Ensure(task.Task{Repo: "o/r", Type: task.TypeIssueToPR, SourceKind: task.SourceKindIssue, SourceNumber: 12, Title: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	var got Event
+	h := NewHandler(cfg, tasks, func(evt Event) { got = evt }, nil)
+	body := []byte(`{"action":"closed","issue":{"number":12,"title":"x"},"repository":{"full_name":"o/r"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	req.Header.Set("X-GitHub-Event", "issues")
 	req.Header.Set("X-Hub-Signature-256", signBody("s", body))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-
-	var resp map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["added"] != false {
-		t.Fatalf("expected skip, got %v", resp)
-	}
-	if got.Kind != "" {
-		t.Fatalf("expected no event for rule mismatch, got: %+v", got)
-	}
-}
-
-func TestIssueCommentEnqueuesOldIssue(t *testing.T) {
-	cfg := config.Default()
-	cfg.IssueWatch.Labels = nil
-	cfg.IssueWatch.RequireUnassigned = false
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-
-	var got Event
-	h := NewHandler(cfg, store, nil, func(evt Event) { got = evt }, nil)
-
-	body := []byte(`{
-		"action":"created",
-		"issue":{"number":55,"title":"legacy","state":"open","html_url":"https://github.com/o/r/issues/55","labels":[],"assignees":[]},
-		"repository":{"full_name":"o/r"}
-	}`)
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("X-GitHub-Event", "issue_comment")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if got.Kind != EventCommentAdded || got.Number != 55 {
-		t.Fatalf("event: %+v", got)
-	}
-}
-
-func TestIssueCommentReactivatesPosted(t *testing.T) {
-	cfg := config.Default()
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-	_ = store.Upsert(todo.Item{Repo: "o/r", Number: 37, Title: "x", Status: todo.StatusPosted, Draft: "old"})
-
-	var got Event
-	h := NewHandler(cfg, store, nil, func(evt Event) { got = evt }, nil)
-
-	body := []byte(`{
-		"action":"created",
-		"comment":{"body":"please help again","user":{"login":"alice","type":"User"}},
-		"issue":{"number":37,"title":"x","state":"open","html_url":"https://github.com/o/r/issues/37","labels":[],"assignees":[]},
-		"repository":{"full_name":"o/r"}
-	}`)
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("X-GitHub-Event", "issue_comment")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d", rec.Code)
-	}
-	if got.Kind != EventCommentAdded || got.Number != 37 {
-		t.Fatalf("event: %+v", got)
-	}
-	it, _ := store.Get("o/r", 37)
-	if it.Status != todo.StatusInTodo || it.Draft != "" {
-		t.Fatalf("item=%+v", it)
-	}
-}
-
-func TestIssueCommentSkipsAutoReply(t *testing.T) {
-	cfg := config.Default()
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-	_ = store.Upsert(todo.Item{Repo: "o/r", Number: 38, Title: "x", Status: todo.StatusPosted})
-
-	emitted := false
-	h := NewHandler(cfg, store, nil, func(evt Event) { emitted = true }, nil)
-
-	body := []byte(`{
-		"action":"created",
-		"comment":{"body":"Thanks\n---\n_Posted by Ops-Agent (auto)_","user":{"login":"bot-user","type":"User"}},
-		"issue":{"number":38,"title":"x","state":"open","html_url":"https://github.com/o/r/issues/38","labels":[],"assignees":[]},
-		"repository":{"full_name":"o/r"}
-	}`)
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("X-GitHub-Event", "issue_comment")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d", rec.Code)
-	}
-	if emitted {
-		t.Fatal("expected no event for own auto reply")
-	}
-	it, _ := store.Get("o/r", 38)
-	if it.Status != todo.StatusPosted {
-		t.Fatalf("status=%s", it.Status)
-	}
-}
-
-func TestIssueClosedRemovesTodo(t *testing.T) {
-	cfg := config.Default()
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-	_ = store.Upsert(todo.Item{Repo: "o/r", Number: 7, Title: "active", Status: todo.StatusInTodo})
-
-	var got Event
-	h := NewHandler(cfg, store, nil, func(evt Event) { got = evt }, nil)
-
-	body := []byte(`{
-		"action":"closed",
-		"issue":{"number":7,"title":"active","state":"closed"},
-		"repository":{"full_name":"o/r"}
-	}`)
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("X-GitHub-Event", "issues")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d", rec.Code)
-	}
 	if got.Kind != EventClosed {
-		t.Fatalf("event: %+v", got)
+		t.Fatalf("event: %+v body=%s", got, rec.Body.String())
 	}
-	it, ok := store.Get("o/r", 7)
-	if !ok || it.Status != todo.StatusDone {
-		t.Fatalf("item=%+v ok=%v", it, ok)
-	}
-}
-
-func TestPullRequestClosedRemovesTodo(t *testing.T) {
-	cfg := config.Default()
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-	_ = store.Upsert(todo.Item{Repo: "o/r", Number: 12, Title: "pr item", Status: todo.StatusInTodo})
-
-	var got Event
-	h := NewHandler(cfg, store, nil, func(evt Event) { got = evt }, nil)
-
-	body := []byte(`{
-		"action":"closed",
-		"pull_request":{"number":12,"title":"pr item","state":"closed"},
-		"repository":{"full_name":"o/r"}
-	}`)
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("X-GitHub-Event", "pull_request")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d", rec.Code)
-	}
-	if got.Kind != EventClosed {
-		t.Fatalf("event: %+v", got)
-	}
-	it, ok := store.Get("o/r", 12)
-	if !ok || it.Status != todo.StatusDone {
-		t.Fatalf("item=%+v ok=%v", it, ok)
+	item, ok := tasks.FindIssue("o/r", 12)
+	if !ok || item.Status != task.StatusCancelled {
+		t.Fatalf("task=%+v ok=%v", item, ok)
 	}
 }
 
 func TestPing(t *testing.T) {
 	cfg := config.Default()
 	cfg.Webhook.Secret = "s"
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
 	var got Event
-	h := NewHandler(cfg, store, nil, func(evt Event) { got = evt }, nil)
+	h := NewHandler(cfg, nil, func(evt Event) { got = evt }, nil)
 
 	body := []byte(`{"zen":"test"}`)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -287,124 +197,44 @@ func TestPing(t *testing.T) {
 	}
 }
 
-func TestPushLibTestEnqueue(t *testing.T) {
+func TestIssueEventEnqueuesTask(t *testing.T) {
+	store, err := task.Load(t.TempDir() + "/tasks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.Default()
-	cfg.Webhook.Secret = ""
-	cfg.LibTest.Enabled = true
-	cfg.LibTest.OnPush = true
-
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-	libStore, _ := libtest.Load(t.TempDir() + "/libtest.json")
-	var got Event
-	h := NewHandler(cfg, store, libStore, func(evt Event) { got = evt }, nil)
-
-	body := []byte(`{
-		"ref":"refs/heads/main",
-		"repository":{"full_name":"tangjie133/test","default_branch":"main"}
-	}`)
+	cfg.Task.IssueToPR.Enabled = true
+	h := NewHandler(cfg, store, nil, nil)
+	body := []byte(`{"action":"opened","issue":{"number":45,"title":"bug","html_url":"http://example/45"},"repository":{"full_name":"o/r"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
-	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-GitHub-Event", "issues")
 	rec := httptest.NewRecorder()
-
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var resp map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["queued"] != true {
-		t.Fatalf("expected queued, got %v body=%s", resp["queued"], rec.Body.String())
-	}
-	if got.Kind != EventLibTestQueued || got.Repo != "tangjie133/test" {
-		t.Fatalf("event: %+v", got)
-	}
-	item, ok := libStore.Get("tangjie133/test", "main")
-	if !ok || item.Status != libtest.StatusPending {
-		t.Fatalf("libtest item: %+v ok=%v", item, ok)
+	items := store.List()
+	if len(items) != 1 || items[0].SourceNumber != 45 || items[0].SourceKind != task.SourceKindIssue {
+		t.Fatalf("tasks=%+v", items)
 	}
 }
 
-func TestRepositoryCreatedLibTestEnqueue(t *testing.T) {
+func TestPullRequestEventEnqueuesTask(t *testing.T) {
+	store, err := task.Load(t.TempDir() + "/tasks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.Default()
-	cfg.Webhook.Secret = ""
-	cfg.LibTest.Enabled = true
-	cfg.LibTest.OnRepoCreated = true
-
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-	libStore, _ := libtest.Load(t.TempDir() + "/libtest.json")
-	var got Event
-	h := NewHandler(cfg, store, libStore, func(evt Event) { got = evt }, nil)
-
-	body := []byte(`{
-		"action":"created",
-		"repository":{"full_name":"tangjie133/new-lib","default_branch":"main"}
-	}`)
+	cfg.Task.IssueToPR.Enabled = true
+	h := NewHandler(cfg, store, nil, nil)
+	body := []byte(`{"action":"opened","pull_request":{"number":9,"title":"fix","html_url":"http://example/9"},"repository":{"full_name":"o/r"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
-	req.Header.Set("X-GitHub-Event", "repository")
-	rec := httptest.NewRecorder()
-
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	var resp map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["queued"] != true {
-		t.Fatalf("expected queued, got %v body=%s", resp["queued"], rec.Body.String())
-	}
-	if got.Kind != EventLibTestQueued || got.Repo != "tangjie133/new-lib" {
-		t.Fatalf("event: %+v", got)
-	}
-	item, ok := libStore.Get("tangjie133/new-lib", "main")
-	if !ok || item.Status != libtest.StatusPending {
-		t.Fatalf("libtest item: %+v ok=%v", item, ok)
-	}
-}
-
-func TestRepositoryCreatedSkippedWhenDisabled(t *testing.T) {
-	cfg := config.Default()
-	cfg.LibTest.Enabled = true
-	cfg.LibTest.OnRepoCreated = false
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-	libStore, _ := libtest.Load(t.TempDir() + "/libtest.json")
-	h := NewHandler(cfg, store, libStore, nil, nil)
-
-	body := []byte(`{"action":"created","repository":{"full_name":"o/r","default_branch":"main"}}`)
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("X-GitHub-Event", "repository")
+	req.Header.Set("X-GitHub-Event", "pull_request")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-
-	var resp map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["skipped"] != "on_repo_created disabled" {
-		t.Fatalf("got %v", resp)
-	}
-}
-
-func TestPushSkippedNonDefaultBranch(t *testing.T) {
-	cfg := config.Default()
-	cfg.LibTest.Enabled = true
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-	libStore, _ := libtest.Load(t.TempDir() + "/libtest.json")
-	h := NewHandler(cfg, store, libStore, nil, nil)
-
-	body := []byte(`{
-		"ref":"refs/heads/dev",
-		"repository":{"full_name":"o/r","default_branch":"main"}
-	}`)
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("X-GitHub-Event", "push")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	var resp map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["skipped"] != "dev" {
-		t.Fatalf("expected skip dev, got %v", resp)
-	}
-	if _, ok := libStore.Get("o/r", "dev"); ok {
-		t.Fatal("should not enqueue non-default branch")
+	items := store.List()
+	if len(items) != 1 || items[0].SourceNumber != 9 || items[0].SourceKind != task.SourceKindPR {
+		t.Fatalf("status=%d tasks=%+v", rec.Code, items)
 	}
 }
 
@@ -413,8 +243,7 @@ func TestServerStartAndHealthz(t *testing.T) {
 	cfg.Webhook.Listen = "127.0.0.1:0"
 	cfg.Webhook.Secret = ""
 
-	store, _ := todo.Load(t.TempDir() + "/todo.json")
-	srv := NewServer(cfg, store, nil, nil, nil)
+	srv := NewServer(cfg, nil, nil, nil)
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
 	}

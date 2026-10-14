@@ -17,4 +17,7 @@ func TestSkipOwnAutoReply(t *testing.T) {
 	if skipOwnAutoReply(cfg, Comment{Body: "need more help", User: User{Login: "alice", Type: "User"}}) {
 		t.Fatal("should not skip user comment")
 	}
+	if !skipOwnAutoReply(cfg, Comment{Body: "介绍\n\n---\nHandled by Ops-Agent\nTask: t1\nRun: r1\nMode: auto", User: User{Login: "me", Type: "User"}}) {
+		t.Fatal("expected skip publisher footer")
+	}
 }

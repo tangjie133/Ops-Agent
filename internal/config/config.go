@@ -55,13 +55,13 @@ type TodoConfig struct {
 
 // IssueAutomationConfig Issue 分析与回复的自动化策略。
 type IssueAutomationConfig struct {
-	Mode               string          `yaml:"mode"`
-	AutoAnalyze        bool            `yaml:"auto_analyze"`
-	ConfirmBeforeReply bool            `yaml:"confirm_before_reply"`
-	AutoReply          AutoReplyConfig `yaml:"auto_reply"`
+	Mode               string           `yaml:"mode"`
+	AutoAnalyze        bool             `yaml:"auto_analyze"`
+	ConfirmBeforeReply bool             `yaml:"confirm_before_reply"`
+	AutoReply          AutoReplyConfig  `yaml:"auto_reply"`
 	RefactorPR         RefactorPRConfig `yaml:"refactor_pr"`
-	NotifyOnReady      bool            `yaml:"notify_on_ready"`
-	NotifyOnPosted     bool            `yaml:"notify_on_posted"`
+	NotifyOnReady      bool             `yaml:"notify_on_ready"`
+	NotifyOnPosted     bool             `yaml:"notify_on_posted"`
 }
 
 type AutoReplyConfig struct {
@@ -81,13 +81,13 @@ type ChannelConfig struct {
 }
 
 type AIConfig struct {
-	Provider     string              `yaml:"provider"` // openai 兼容
-	BaseURL      string              `yaml:"base_url"`
-	Model        string              `yaml:"model"`
-	APIKey       string              `yaml:"api_key"`
-	Investigator InvestigatorConfig  `yaml:"investigator"` // Agent 循环参数
-	RepoContext  RepoContextConfig   `yaml:"repo_context"` // 克隆/符号索引
-	RAG          RAGConfig           `yaml:"rag"`          // 本地知识库
+	Provider     string             `yaml:"provider"` // openai 兼容
+	BaseURL      string             `yaml:"base_url"`
+	Model        string             `yaml:"model"`
+	APIKey       string             `yaml:"api_key"`
+	Investigator InvestigatorConfig `yaml:"investigator"` // Agent 循环参数
+	RepoContext  RepoContextConfig  `yaml:"repo_context"` // 克隆/符号索引
+	RAG          RAGConfig          `yaml:"rag"`          // 本地知识库
 }
 
 func (c *AIConfig) normalize() {
@@ -132,10 +132,10 @@ func Default() *Config {
 			},
 		},
 		LibTest: LibTestConfig{
-			Enabled:  true,
-			Standard: "arduino-library",
-			AutoRun:  true,
-			OnPush:   true,
+			Enabled:   true,
+			Standard:  "arduino-library",
+			AutoRun:   true,
+			OnPush:    true,
 			OnRelease: true,
 		},
 		Notify: NotifyConfig{
@@ -168,6 +168,7 @@ func Default() *Config {
 		},
 		Task: TaskConfig{
 			Idempotency: true,
+			IssueToPR:   IssueToPRConfig{Enabled: true},
 			Workspace: WorkspaceConfig{
 				Mode:         "worktree",
 				KeepFailed:   true,
@@ -345,21 +346,6 @@ func FormatModesHelp(current string) string {
 		b.WriteString(fmt.Sprintf("%s%s (%s) — %s\n", prefix, mode, ModeTitle(mode), ModeDescription(mode)))
 	}
 	return strings.TrimRight(b.String(), "\n")
-}
-
-func TodoStorePath() string {
-	if p := os.Getenv("OPS_AGENT_DATA"); p != "" {
-		return filepath.Join(p, "todo.json")
-	}
-	if runtime.GOOS == "windows" {
-		if appData := os.Getenv("APPDATA"); appData != "" {
-			return filepath.Join(appData, "ops-agent", "todo.json")
-		}
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share", "ops-agent", "todo.json")
-	}
-	return "todo.json"
 }
 
 // LogFilePath TUI 会话日志（纯文本，可 tail -f 或编辑器打开）。

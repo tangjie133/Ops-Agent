@@ -1,21 +1,32 @@
 package tui
 
-// todo_panel.go — 左侧待办列表渲染与键盘导航（[ ] 切换状态等）。
+// todo_panel.go — 左侧任务列表渲染与键盘导航。
 
 import (
 	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
-	"github.com/ZzedJay/Ops-Agent/internal/todo"
+	"github.com/ZzedJay/Ops-Agent/internal/task"
 )
 
 var todoSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+func taskBusy(st task.Status) bool {
+	switch st {
+	case task.StatusCollectingContext, task.StatusPlanning, task.StatusExecuting,
+		task.StatusVerifying, task.StatusEvaluatingSafety, task.StatusPublishing, task.StatusLearning:
+		return true
+	default:
+		return false
+	}
+}
+
 func (m *Model) hasAnalyzingTodo() bool {
 	for _, it := range m.activeTodos() {
-		if it.Status == todo.StatusAnalyzing {
+		if taskBusy(it.Status) {
 			return true
 		}
 	}
@@ -32,19 +43,31 @@ func analyzingSpinner(frame int) string {
 	return todoSpinnerFrames[frame%len(todoSpinnerFrames)]
 }
 
-// formatTodoEntry 两行展示：第一行 仓库#编号，第二行 标题。
-func formatTodoEntry(it todo.Item, width int, selected bool, spinnerFrame int) []string {
+// formatTodoEntry 使用 TaskRows。选中时展开阶段、日志、原因和 PR。
+func formatTodoEntry(it task.Task, width int, selected bool, spinnerFrame int) []string {
+	_ = spinnerFrame
 	if width < 12 {
 		width = 12
 	}
+	rows := TaskRows(it, selected, nil)
 	marker := " "
 	if selected {
 		marker = ">"
 	}
-	ref := todoFullRef(it.Repo, it.Number)
-	head := fmt.Sprintf("%s %s %s", marker, statusSymbol(it.Status, spinnerFrame), truncateASCII(ref, width-4))
-	title := truncateASCII(it.Title, width-3)
-	return []string{head, "   " + title}
+	rows[0] = marker + " " + truncateASCII(rows[0], width-2)
+	for i := 1; i < len(rows); i++ {
+		rows[i] = "  " + truncateASCII(rows[i], width-2)
+	}
+	return rows
+}
+
+func (m *Model) renderLeftColumn() string {
+	todoW := m.todoPanelWidth()
+	var b strings.Builder
+	b.WriteString(styleTodoHeader.Render("任务"))
+	b.WriteString("\n")
+	b.WriteString(m.renderTodoPanel())
+	return lipgloss.NewStyle().Width(todoW).Height(m.bodyHeight()).Render(b.String())
 }
 
 func todoFullRef(repo string, number int) string {
@@ -68,30 +91,25 @@ func truncateASCII(s string, max int) string {
 	return s[:max-1] + "…"
 }
 
-func statusSymbol(st todo.Status, spinnerFrame int) string {
+func statusSymbol(st task.Status, spinnerFrame int) string {
 	switch st {
-	case todo.StatusAnalyzing:
-		return analyzingSpinner(spinnerFrame)
-	case todo.StatusReady:
-		return "●"
-	case todo.StatusFixConfirmed:
-		return "◆"
-	case todo.StatusRefactoring:
-		return analyzingSpinner(spinnerFrame)
-	case todo.StatusPROpened:
+	case task.StatusDone:
 		return "✓"
-	case todo.StatusPosted, todo.StatusDone:
-		return "✓"
-	case todo.StatusFailed:
+	case task.StatusFailed, task.StatusNeedsManualIntervention:
 		return "✗"
-	case todo.StatusDismissed:
+	case task.StatusCancelled, task.StatusRolledBack:
 		return "—"
+	case task.StatusAwaitingApproval, task.StatusAwaitingHumanReview:
+		return "●"
 	default:
+		if taskBusy(st) {
+			return analyzingSpinner(spinnerFrame)
+		}
 		return "○"
 	}
 }
 
-// todoWatchSummary 汇总待办涉及的仓库数（Webhook 按 payload 跨库，非 cwd 单库）。
+// todoWatchSummary 汇总任务涉及的仓库数。
 func (m *Model) todoWatchSummary() string {
 	repos := make(map[string]struct{})
 	for _, it := range m.activeTodos() {
@@ -112,12 +130,14 @@ func (m *Model) todoWatchSummary() string {
 	return "—"
 }
 
-func (m *Model) activeTodos() []todo.Item {
-	items := m.store.List()
-	var active []todo.Item
-	for _, it := range items {
+func (m *Model) activeTodos() []task.Task {
+	if m.tasks == nil {
+		return nil
+	}
+	var active []task.Task
+	for _, it := range m.tasks.List() {
 		switch it.Status {
-		case todo.StatusDismissed, todo.StatusDone:
+		case task.StatusDone, task.StatusCancelled, task.StatusRolledBack:
 			continue
 		}
 		active = append(active, it)
@@ -125,9 +145,9 @@ func (m *Model) activeTodos() []todo.Item {
 	return active
 }
 
-func todoIndexByKey(active []todo.Item, repo string, num int) int {
+func todoIndexByKey(active []task.Task, repo string, num int) int {
 	for i, it := range active {
-		if it.Repo == repo && it.Number == num {
+		if it.Repo == repo && it.SourceNumber == num {
 			return i
 		}
 	}
@@ -139,7 +159,7 @@ func (m *Model) captureTodoAnchor() {
 	if m.todoSel >= 0 && m.todoSel < len(active) {
 		it := active[m.todoSel]
 		m.todoAnchorRepo = it.Repo
-		m.todoAnchorNum = it.Number
+		m.todoAnchorNum = it.SourceNumber
 	}
 }
 
@@ -171,13 +191,66 @@ func (m *Model) dismissSelectedTodo() {
 		return
 	}
 	it := active[m.todoSel]
-	if err := m.store.Transition(it.Repo, it.Number, todo.StatusDismissed); err != nil {
-		m.appendOutput(fmt.Sprintf("忽略失败: %v", err))
+	ok, err := m.tasks.CancelIssue(it.Repo, it.SourceNumber)
+	if err != nil || !ok {
+		m.appendOutput(fmt.Sprintf("取消失败: %v", err))
 		return
 	}
-	m.appendOutput(fmt.Sprintf("已忽略 %s#%d", it.Repo, it.Number))
+	m.appendOutput(fmt.Sprintf("已取消 %s#%d", it.Repo, it.SourceNumber))
 	m.ensureTodoSelection()
 }
+
+const listEntryLines = 2
+
+func panelScrollStart(sel, total, maxLines int) int {
+	if total <= 0 || maxLines <= 0 {
+		return 0
+	}
+	visible := maxLines / listEntryLines
+	if visible < 1 {
+		visible = 1
+	}
+	if total <= visible {
+		return 0
+	}
+	start := 0
+	if sel >= visible {
+		start = sel - visible + 1
+	}
+	maxStart := total - visible
+	if start > maxStart {
+		start = maxStart
+	}
+	return start
+}
+
+func panelWrapSel(sel, delta, n int) int {
+	if n <= 0 {
+		return -1
+	}
+	if sel < 0 {
+		if delta >= 0 {
+			return 0
+		}
+		return n - 1
+	}
+	return (sel + delta + n*1024) % n
+}
+
+func (m *Model) moveTodoSel(delta int) {
+	n := len(m.activeTodos())
+	m.todoSel = panelWrapSel(m.todoSel, delta, n)
+	if n > 0 {
+		m.captureTodoAnchor()
+	} else {
+		m.todoAnchorRepo = ""
+		m.todoAnchorNum = 0
+	}
+	m.markDirty()
+}
+
+func (m *Model) todoUp()   { m.moveTodoSel(-1) }
+func (m *Model) todoDown() { m.moveTodoSel(1) }
 
 func (m *Model) focusSelectedTodo() tea.Cmd {
 	active := m.activeTodos()
@@ -185,5 +258,5 @@ func (m *Model) focusSelectedTodo() tea.Cmd {
 		return nil
 	}
 	it := active[m.todoSel]
-	return m.runCommand(fmt.Sprintf("/issue %s#%d", it.Repo, it.Number))
+	return m.runCommand(fmt.Sprintf("/issue %s#%d", it.Repo, it.SourceNumber))
 }

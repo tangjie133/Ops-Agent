@@ -57,7 +57,8 @@ ops-agent
 
 **TUI 内后台任务（进程内 goroutine，关 TUI 即停）：**
 
-1. **Issue 扫描器**：按配置间隔 `gh issue list`，匹配规则后写入待办
+1. **Issue 扫描器**：按配置间隔 `gh issue list`，匹配规则后写
+入待办
 2. **Issue Worker**：对待办条目按自动化模式执行分析 / 回复流水线
 
 ### 2.2 Headless 自动化（仅 CI，非运维界面）
@@ -159,17 +160,19 @@ GitHub Actions **无法**使用 TUI。同一二进制在检测到 CI / 非 TTY �
 ```
 cmd/ops-agent/
 internal/
-  tui/          # Bubble Tea：唯一人机界面
-  headless/     # CI：PR 检测 / Issue 按需扫描
-  issuewatch/   # 扫描规则、gh issue list
-  todo/         # 待办队列、持久化、状态机
-  worker/       # Issue 自动化流水线
-  agent/        # 对话循环、工具调度
-  ai/           # HTTP 客户端（llama-server）
-  github/       # 封装 gh
-  prcheck/      # PR 规则
-  notify/       # slack, feishu, dingtalk, multi
-  config/
+  tui/            # Bubble Tea 界面
+  headless/       # 无界面入口
+  webhook/        # GitHub Webhook
+  task/           # 任务队列与状态
+  orchestrator/   # Issue → draft PR 编排
+  executor/       # 在任务工作区里改代码
+  verifier/       # 测试与仓库校验
+  safety/         # 发布前风险判断
+  publisher/      # 只创建 draft PR
+  workspace/      # 独立 git worktree
+  budget/ memory/ feedback/ skill/
+  ai/ github/ config/
+  libtest/        # 库验收
 ```
 
 ### 5.2 AI 集成策略
@@ -288,7 +291,7 @@ in_todo → analyzing → ready → posted → done
 | `dismissed` | 用户忽略 |
 | `failed` | API / 模型 / 发送失败，可重试 |
 
-**本地持久化：** `~/.local/share/ops-agent/todo.json`（Windows：`%AppData%/ops-agent/todo.json`）。仅存 id、repo、status、草稿摘要与时间戳；详情仍 `gh issue view`。
+**本地持久化：** `~/.local/share/ops-agent/tasks.json`（Windows：`%AppData%/ops-agent/tasks.json`）。详情仍用 `gh issue view`。
 
 ### 7.4 自动化模式（主开关）
 

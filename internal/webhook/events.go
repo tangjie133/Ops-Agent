@@ -14,13 +14,13 @@ type Event struct {
 type EventKind string
 
 const (
-	EventAdded        EventKind = "added"
-	EventCommentAdded EventKind = "comment_added"
-	EventClosed       EventKind = "closed"
-	EventReopened  EventKind = "reopened"
-	EventSkipped   EventKind = "skipped"
-	EventPing      EventKind = "ping"
-	EventIgnored      EventKind = "ignored"
+	EventAdded         EventKind = "added"
+	EventCommentAdded  EventKind = "comment_added"
+	EventClosed        EventKind = "closed"
+	EventReopened      EventKind = "reopened"
+	EventSkipped       EventKind = "skipped"
+	EventPing          EventKind = "ping"
+	EventIgnored       EventKind = "ignored"
 	EventLibTestQueued EventKind = "lib_test_queued"
 	EventFixConfirmed  EventKind = "fix_confirmed"
 )

@@ -21,3 +21,11 @@ type Result struct {
 type Executor interface {
 	Run(ctx context.Context, req Request) (Result, error)
 }
+
+// ExecutorFunc adapts a function to Executor.
+type ExecutorFunc func(ctx context.Context, req Request) (Result, error)
+
+// Run implements Executor.
+func (f ExecutorFunc) Run(ctx context.Context, req Request) (Result, error) {
+	return f(ctx, req)
+}

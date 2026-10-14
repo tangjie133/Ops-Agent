@@ -3,6 +3,7 @@ package publisher
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/ZzedJay/Ops-Agent/internal/github"
@@ -57,4 +58,25 @@ func (p *Publisher) CreateDraftPR(ctx context.Context, in DraftPRInput) (string,
 // CommentIssue 在 Issue 上留下带页脚的说明。
 func (p *Publisher) CommentIssue(ctx context.Context, repo string, number int, body, taskID, runID string) error {
 	return p.gh.IssueComment(ctx, repo, number, strings.TrimSpace(body)+"\n\n"+Footer(taskID, runID))
+}
+
+// CommentDraftPR 在刚创建的 draft PR 上留下说明。
+func (p *Publisher) CommentDraftPR(ctx context.Context, repo, prURL, body, taskID, runID string) error {
+	number, err := prNumber(prURL)
+	if err != nil {
+		return err
+	}
+	return p.CommentIssue(ctx, repo, number, body, taskID, runID)
+}
+
+func prNumber(prURL string) (int, error) {
+	i := strings.LastIndex(prURL, "/")
+	if i < 0 || i == len(prURL)-1 {
+		return 0, fmt.Errorf("bad pr url %q", prURL)
+	}
+	n, err := strconv.Atoi(prURL[i+1:])
+	if err != nil {
+		return 0, fmt.Errorf("bad pr url %q", prURL)
+	}
+	return n, nil
 }

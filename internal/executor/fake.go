@@ -11,6 +11,7 @@ type Fake struct {
 	Changed bool
 	Err     error
 	Last    Request
+	Summary string
 }
 
 // Run 记录请求；Changed 为真时写入 FAKE_CHANGE.md。
@@ -24,5 +25,9 @@ func (f *Fake) Run(ctx context.Context, req Request) (Result, error) {
 			return Result{}, err
 		}
 	}
-	return Result{Summary: "fake", Changed: f.Changed}, nil
+	summary := "fake"
+	if f.Summary != "" {
+		summary = f.Summary
+	}
+	return Result{Summary: summary, Changed: f.Changed}, nil
 }

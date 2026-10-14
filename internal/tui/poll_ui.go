@@ -21,27 +21,18 @@ func (m *Model) handleRefreshTick() tea.Cmd {
 	dirty := false
 	var workerCmd tea.Cmd
 
-	if changed, _ := m.store.ReloadIfChanged(); changed {
+	if changed, _ := m.tasks.ReloadIfChanged(); changed {
 		dirty = true
 		workerCmd = m.triggerWorkerIfNeeded()
-	}
-	if changed, _ := m.libTestStore.ReloadIfChanged(); changed {
-		dirty = true
-	}
-
-	if inv := pollInvStatus(); inv != m.invStatus {
-		m.invStatus = inv
-		dirty = true
 	}
 
 	prevTodoSel := m.todoSel
 	m.ensureTodoSelection()
-	m.ensureTestSelection()
 	if m.todoSel != prevTodoSel {
 		dirty = true
 	}
 
-	if m.hasAnalyzingTodo() || m.hasCheckingLibTest() {
+	if m.hasAnalyzingTodo() {
 		m.spinnerFrame++
 		m.spinnerActive = true
 		dirty = true

@@ -11,25 +11,25 @@ import (
 	"time"
 
 	"github.com/ZzedJay/Ops-Agent/internal/config"
-	"github.com/ZzedJay/Ops-Agent/internal/libtest"
-	"github.com/ZzedJay/Ops-Agent/internal/todo"
+	"github.com/ZzedJay/Ops-Agent/internal/task"
 )
 
 // Server 封装 webhook HTTP 监听与 graceful shutdown。
 type Server struct {
-	cfg    *config.Config
-	http   *http.Server
-	ln     net.Listener
-	logger *log.Logger
+	cfg     *config.Config
+	handler *Handler
+	http    *http.Server
+	ln      net.Listener
+	logger  *log.Logger
 }
 
 // NewServer 构建 mux：Webhook 路径 + /healthz。
-func NewServer(cfg *config.Config, store *todo.FileStore, libTest *libtest.FileStore, onEvent OnEvent, logger *log.Logger) *Server {
+func NewServer(cfg *config.Config, tasks *task.FileStore, onEvent OnEvent, logger *log.Logger) *Server {
 	if logger == nil {
 		logger = log.Default()
 	}
 	mux := http.NewServeMux()
-	handler := NewHandler(cfg, store, libTest, onEvent, logger)
+	handler := NewHandler(cfg, tasks, onEvent, logger)
 	path := normalizePath(cfg.Webhook.Path)
 	mux.Handle(path, handler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -38,7 +38,8 @@ func NewServer(cfg *config.Config, store *todo.FileStore, libTest *libtest.FileS
 	})
 
 	return &Server{
-		cfg: cfg,
+		cfg:     cfg,
+		handler: handler,
 		http: &http.Server{
 			Handler:           mux,
 			ReadHeaderTimeout: 10 * time.Second,
@@ -77,7 +78,7 @@ func (s *Server) Start() error {
 	s.ln = ln
 	s.http.Addr = ln.Addr().String()
 
-		s.logger.Printf("webhook · 监听 http://%s%s", ln.Addr().String(), normalizePath(s.cfg.Webhook.Path))
+	s.logger.Printf("webhook · 监听 http://%s%s", ln.Addr().String(), normalizePath(s.cfg.Webhook.Path))
 	go func() {
 		if err := s.http.Serve(ln); err != nil && err != http.ErrServerClosed {
 			s.logger.Printf("webhook · 服务异常: %v", err)

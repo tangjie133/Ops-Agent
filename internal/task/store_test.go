@@ -1,9 +1,24 @@
 package task
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestLoadEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.json")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(s.List()); n != 0 {
+		t.Fatalf("tasks=%d", n)
+	}
+}
 
 func TestEnsureReusesTaskKey(t *testing.T) {
 	s, err := Load(filepath.Join(t.TempDir(), "tasks.json"))
@@ -43,6 +58,36 @@ func TestBeginRunSkipsDuplicateTrigger(t *testing.T) {
 	}
 	if r1.ID == "" {
 		t.Fatal("empty run id")
+	}
+}
+
+func TestBeginRunAllowsRetryWhenCreatedAgain(t *testing.T) {
+	s, err := Load(filepath.Join(t.TempDir(), "tasks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, tk, err := s.Ensure(Task{Repo: "o/r", Type: TypeIssueToPR, SourceKind: SourceKindIssue, SourceNumber: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r1, skipped, err := s.BeginRun(tk.Key, "tui:"+tk.ID)
+	if err != nil || skipped {
+		t.Fatalf("first skipped=%v err=%v", skipped, err)
+	}
+	if err := s.ClearActiveRun(tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	tk, _ = s.GetByKey(tk.Key)
+	tk.Status = StatusCreated
+	if err := s.Update(tk); err != nil {
+		t.Fatal(err)
+	}
+	r2, skipped, err := s.BeginRun(tk.Key, "tui:"+tk.ID)
+	if err != nil || skipped {
+		t.Fatalf("retry skipped=%v err=%v", skipped, err)
+	}
+	if r2.ID == "" || r2.ID == r1.ID {
+		t.Fatalf("r1=%s r2=%s", r1.ID, r2.ID)
 	}
 }
 

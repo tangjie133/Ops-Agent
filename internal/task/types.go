@@ -36,6 +36,8 @@ type Task struct {
 	URL           string     `json:"url,omitempty"`
 	Branch        string     `json:"branch,omitempty"`
 	PRURL         string     `json:"pr_url,omitempty"`
+	CommentPosted bool       `json:"comment_posted,omitempty"`
+	StopReason    string     `json:"stop_reason,omitempty"`
 	WorkspacePath string     `json:"workspace_path,omitempty"`
 	ActiveRunID   string     `json:"active_run_id,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
@@ -63,3 +65,6 @@ type SourceKind string
 
 // SourceKindIssue 表示来源是 GitHub Issue。
 const SourceKindIssue SourceKind = "issue"
+
+// SourceKindPR 表示来源是 GitHub Pull Request。
+const SourceKindPR SourceKind = "pr"

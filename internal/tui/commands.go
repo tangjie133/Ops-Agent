@@ -11,10 +11,10 @@ import (
 	"github.com/ZzedJay/Ops-Agent/internal/config"
 	"github.com/ZzedJay/Ops-Agent/internal/github"
 	"github.com/ZzedJay/Ops-Agent/internal/netproxy"
-	"github.com/ZzedJay/Ops-Agent/internal/todo"
+	"github.com/ZzedJay/Ops-Agent/internal/task"
 )
 
-func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, store *todo.FileStore, line string) string {
+func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, store *task.FileStore, line string) string {
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return ""
@@ -31,14 +31,8 @@ func runCommand(ctx context.Context, cfg *config.Config, gh *github.Client, stor
 		return helpText()
 	case "/status":
 		return cmdStatus(ctx, gh, cfg)
-	case "/mode":
-		return "输入 /mode 后按 Enter 打开 Issue 自动化与修库 PR 配置菜单。"
-	case "/model", "/ai":
-		return "输入 /model 后按 Enter 打开模型配置菜单。"
-	case "/proxy", "/vpn", "/网络":
-		return "输入 /proxy 后按 Enter 打开网络代理配置菜单。"
-	case "/webhook":
-		return "输入 /webhook 后按 Enter 打开 Webhook 配置菜单。"
+	case "/mode", "/model", "/ai", "/proxy", "/vpn", "/网络", "/webhook":
+		return "这些配置不在菜单里。空输入按 s 打开设置页，或在对话里说「模型 …」「webhook 开」「代理 …」。"
 	case "/issue":
 		cwdRepo, _ := gh.RepoFromCwd(ctx)
 		repo, num, errMsg := parseIssueArgs(parts, store, cwdRepo)
@@ -64,37 +58,16 @@ func helpText() string {
   /status            检查 gh 与 llama-server
   /clean             清空输出区域
   /logs              日志文件路径（tail -f 或 Ctrl+Y 复制）
-  /webhook           打开 Webhook 配置菜单（Issue 入队 · 自动保存）
-  /accept            验收配置（与 Issue 独立 · 手动/自动）
-  /model             打开模型配置菜单（base_url / model / api_key）
-  /proxy             打开网络代理菜单（翻墙 / gh clone）
-  /mode              打开 Issue 自动化与修库 PR 菜单（1-5 · 自动保存）
-  /issue owner/repo#n  查看 issue 详情（i 键使用待办所属仓库）
-  /feedback          反馈（M4）
-
-` + config.FormatModesHelp("") + `
+  /issue owner/repo#n  查看 issue 详情
 
 快捷键:
-  Enter        发送（自然语言 → Agent）
-  Tab / →      命令自动补全
-  Ctrl+C       退出
-  j / k        待办/验收列表上/下（[ 待办 · ] 验收）
-  [ / ]        切换待办 / 验收面板焦点
-  v            验收项：查看验收报告
-  Enter        验收项：立即执行验收
-  i            查看选中待办 issue 详情
-  p            发布 ready 草稿（semi 确认 / manual）
-  f            确认修库并开 PR（/mode 配置）
-  d            忽略选中待办
-  Ctrl+Y       复制 tui.log 到剪贴板
-  鼠标滚轮     在对话区滚动
+  输入框为空时 j / k   选择任务
+  输入框为空时 s       打开设置页（模型、webhook、代理）
+  Esc                  主界面退出；设置页返回
+  Enter                发送对话或斜杠命令
+  Ctrl+Y               复制 tui.log 到剪贴板
 
-说明: 后台日志写入 tui.log；全屏下请 Ctrl+Y 复制或 tail -f 查看。
-
-manual 模式聊天处理待办:
-  j/k 选中 → 「分析/处理这条」生成草稿 → 「发布」发帖 → 「忽略」移除
-
-semi/full: Worker 自动分析，ready 后按 p 发布`
+说明: 新 Issue 进入任务队列，由编排器修改代码、测试并创建 draft PR。模型、webhook、代理在设置页或对话里改。合并、关闭 Issue、force push 需要下一句输入「确认」。`
 }
 
 func isOutputClearCommand(line string) bool {
@@ -164,12 +137,12 @@ func cmdStatus(ctx context.Context, gh *github.Client, cfg *config.Config) strin
 	} else {
 		b.WriteString("Webhook: 已禁用\n")
 	}
-	b.WriteString(fmt.Sprintf("待办存储: %s\n", config.TodoStorePath()))
+	b.WriteString(fmt.Sprintf("任务存储: %s\n", config.TaskStorePath(cfg)))
 
 	return b.String()
 }
 
-func cmdIssue(ctx context.Context, gh *github.Client, store *todo.FileStore, repo string, num int) string {
+func cmdIssue(ctx context.Context, gh *github.Client, store *task.FileStore, repo string, num int) string {
 	iss, err := gh.IssueView(ctx, repo, num)
 	if err != nil {
 		return fmt.Sprintf("读取 issue 失败 (%s): %v", formatIssueRef(repo, num), err)
@@ -199,13 +172,13 @@ func cmdIssue(ctx context.Context, gh *github.Client, store *todo.FileStore, rep
 		b.WriteString("指派: (未指派)\n")
 	}
 
-	if item, ok := store.Get(repo, num); ok {
-		b.WriteString(fmt.Sprintf("\n待办状态: %s\n", item.Status))
-		if item.Draft != "" {
-			b.WriteString("\n草稿:\n" + truncateForDisplay(item.Draft, 2000) + "\n")
+	if item, ok := store.FindIssue(repo, num); ok {
+		b.WriteString(fmt.Sprintf("\n任务状态: %s\n", item.Status))
+		if item.PRURL != "" {
+			b.WriteString("PR: " + item.PRURL + "\n")
 		}
 	} else {
-		b.WriteString("\n待办: 未收录\n")
+		b.WriteString("\n任务: 未收录\n")
 	}
 	return b.String()
 }
